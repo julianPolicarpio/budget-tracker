@@ -19,7 +19,7 @@
  * gate has nothing to fire on until Phase 3 gives it real inputs.
  */
 
-import { and, desc, eq, isNull, lt, lte, gte, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, lt, lte, gte, or, sql } from 'drizzle-orm';
 import { db, schema } from './db';
 import { dailyAllowance } from '$lib/allowance';
 import { addDays } from './clock';
@@ -79,6 +79,34 @@ export function runRollover(
  * Phase 3, because this app never claims to have moved money it cannot see.
  */
 export function closePeriod(p: Period, now: Date = new Date()): { id: number; sweptMinor: number } {
+	// A sweep is a claim that real money was left over. If nothing was logged
+	// anywhere in the period's range, "spent" reads as zero for lack of a
+	// record, not because it was a frugal week — sweeping the full allocation
+	// would queue a transfer of money that may never have existed (Spec §4.1).
+	// A catch-up row with entry_count = 0 is the owner affirming "nothing was
+	// spent that day"; that IS data, so it does not make the period a gap.
+	const logged =
+		db
+			.select({ n: sql<number>`count(*)` })
+			.from(schema.logDay)
+			.where(
+				and(
+					gte(schema.logDay.loggedOn, p.startsOn),
+					lte(schema.logDay.loggedOn, p.endsOn),
+					or(gt(schema.logDay.entryCount, 0), eq(schema.logDay.isCatchup, 1))
+				)
+			)
+			.get()?.n ?? 0;
+
+	if (logged === 0) {
+		db.update(schema.period)
+			.set({ closedAt: now.toISOString(), sweptMinor: 0, isGap: 1 })
+			.where(eq(schema.period.id, p.id))
+			.run();
+
+		return { id: p.id, sweptMinor: 0 };
+	}
+
 	const spent =
 		db
 			.select({ n: sql<number>`coalesce(sum(${schema.txn.amountMinor}), 0)` })

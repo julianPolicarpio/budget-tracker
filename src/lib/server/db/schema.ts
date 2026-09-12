@@ -38,7 +38,11 @@ export const period = sqliteTable(
 		supersedesId: integer('supersedes_id'),
 		closedAt: text('closed_at'),
 		sweptMinor: integer('swept_minor'),
-		createdAt: text('created_at').notNull()
+		createdAt: text('created_at').notNull(),
+		// Set by closePeriod() when the range has no logged data (Spec §4.1,
+		// migration 0007). Excludes the period from trend averages and review
+		// comparisons — it is missing data, not a good week.
+		isGap: integer('is_gap').notNull().default(0)
 	},
 	(t) => [uniqueIndex('idx_period_open').on(t.startsOn)]
 );

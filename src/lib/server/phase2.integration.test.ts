@@ -98,6 +98,16 @@ describe('rollover', () => {
 		const id = insertPeriod('2026-08-02', '2026-08-08', 7, 420_000);
 		insertTxn('2026-08-03', 50_000, 'food_out', 0, id);
 		insertTxn('2026-08-05', 70_000, 'transport', 1, id);
+		// Logging a transaction alone does not close the day — closeLogDay()
+		// does that as a separate, explicit step (Spec §4.6). Without it the
+		// period has no log_day row and would now read as a gap (Spec §4.1).
+		for (const d of ['2026-08-03', '2026-08-05']) {
+			m.sqlite
+				.prepare(
+					`INSERT INTO log_day (logged_on, entry_count, is_catchup, closed_at) VALUES (?,1,0,?)`
+				)
+				.run(d, `${d}T21:30:00Z`);
+		}
 
 		const settings = m.today.loadSettings()!;
 		const result = m.rollover.runRollover('2026-08-09', settings);
@@ -106,6 +116,7 @@ describe('rollover', () => {
 
 		const closed = m.sqlite.prepare('SELECT * FROM period WHERE id = ?').get(id) as any;
 		expect(closed.closed_at).not.toBeNull();
+		expect(closed.is_gap).toBe(0);
 		// The immutable fields are untouched — rollover records, never rewrites.
 		expect(closed.spend_alloc_minor).toBe(420_000);
 		expect(closed.daily_allowance_minor).toBe(51_000);
@@ -154,6 +165,58 @@ describe('rollover', () => {
 		expect(result.closed).toHaveLength(0);
 		expect(result.opened).toHaveLength(0);
 		expect(after.n).toBe(before.n);
+	});
+
+	// Spec §4.1: the owner's periods 3–5 swept full allocations because
+	// nothing was logged, not because nothing was spent. A missing record
+	// must never read as a good week.
+	describe('gap periods (Spec §4.1)', () => {
+		it('sweeps zero and flags is_gap when no day in range was logged', () => {
+			const id = insertPeriod('2025-01-06', '2025-01-12', 7, 500_000);
+			const p = m.db.select().from(m.schema.period).where(eq(m.schema.period.id, id)).get()!;
+
+			const result = m.rollover.closePeriod(p);
+
+			expect(result.sweptMinor).toBe(0);
+			const closed = m.sqlite.prepare('SELECT * FROM period WHERE id = ?').get(id) as any;
+			expect(closed.swept_minor).toBe(0);
+			expect(closed.is_gap).toBe(1);
+		});
+
+		it('sweeps normally and leaves is_gap 0 when a real day was logged', () => {
+			const id = insertPeriod('2025-02-03', '2025-02-09', 7, 500_000);
+			insertTxn('2025-02-04', 100_000, 'food_out', 0, id);
+			m.sqlite
+				.prepare(
+					`INSERT INTO log_day (logged_on, entry_count, is_catchup, closed_at) VALUES (?,1,0,?)`
+				)
+				.run('2025-02-04', '2025-02-04T21:00:00Z');
+			const p = m.db.select().from(m.schema.period).where(eq(m.schema.period.id, id)).get()!;
+
+			const result = m.rollover.closePeriod(p);
+
+			expect(result.sweptMinor).toBe(400_000);
+			const closed = m.sqlite.prepare('SELECT * FROM period WHERE id = ?').get(id) as any;
+			expect(closed.is_gap).toBe(0);
+		});
+
+		it('a catch-up row saying "nothing was spent" is data, not a gap', () => {
+			const id = insertPeriod('2025-03-03', '2025-03-09', 7, 500_000);
+			m.sqlite
+				.prepare(
+					`INSERT INTO log_day (logged_on, entry_count, is_catchup, closed_at) VALUES (?,0,1,?)`
+				)
+				.run('2025-03-04', '2025-03-04T21:00:00Z');
+			const p = m.db.select().from(m.schema.period).where(eq(m.schema.period.id, id)).get()!;
+
+			const result = m.rollover.closePeriod(p);
+
+			// Nothing was spent, so the whole allocation still sweeps — but as an
+			// affirmed zero-spend week, not as missing data.
+			expect(result.sweptMinor).toBe(500_000);
+			const closed = m.sqlite.prepare('SELECT * FROM period WHERE id = ?').get(id) as any;
+			expect(closed.is_gap).toBe(0);
+		});
 	});
 });
 
