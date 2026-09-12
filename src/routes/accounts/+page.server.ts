@@ -1,0 +1,160 @@
+import { fail, redirect, type Actions } from '@sveltejs/kit';
+import { loadSettings } from '$lib/server/today';
+import { localToday } from '$lib/server/clock';
+import { openPeriodOn } from '$lib/server/rollover';
+import { parseMoney } from '$lib/money';
+import {
+	IouRequired,
+	assertBalance,
+	listAccounts,
+	listGoals,
+	openIous,
+	recordTransfer,
+	repayIou,
+	upsertGoal
+} from '$lib/server/accounts';
+import { checklist, ensureAllocations, executeAllocation } from '$lib/server/allocations';
+import { PHASES, acceptProposal, declineProposal, phaseStatus, setPhase } from '$lib/server/phases';
+import type { PageServerLoad } from './$types';
+
+export const load: PageServerLoad = () => {
+	const settings = loadSettings();
+	if (!settings) return { ready: false as const };
+
+	const today = localToday(settings.timezone);
+	const period = openPeriodOn(today);
+	if (period) ensureAllocations(period, today);
+
+	return {
+		ready: true as const,
+		today,
+		phases: PHASES,
+		phase: phaseStatus(settings, today),
+		accounts: listAccounts(),
+		goals: listGoals(),
+		ious: openIous(today),
+		checklist: period ? checklist(period, today) : [],
+		period,
+		currency: {
+			code: settings.currencyCode,
+			symbol: settings.currencySymbol,
+			minorUnits: settings.minorUnits
+		}
+	};
+};
+
+export const actions: Actions = {
+	assertBalance: async ({ request }) => {
+		const settings = loadSettings();
+		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
+
+		const form = await request.formData();
+		const accountId = Number(form.get('accountId'));
+		const balanceMinor = parseMoney(String(form.get('balance') ?? ''), settings.minorUnits);
+
+		if (!Number.isInteger(accountId)) return fail(400, { error: 'Unknown account.' });
+		if (balanceMinor === null) return fail(400, { error: 'Enter the balance as it reads.' });
+
+		assertBalance(accountId, balanceMinor, localToday(settings.timezone));
+		redirect(303, '/accounts');
+	},
+
+	/**
+	 * Rule 3 lives here: money leaving Irregulars, Buffer or Grow needs a
+	 * one-line note. The 422 is not validation theatre — the note is the entire
+	 * mechanism.
+	 */
+	transfer: async ({ request }) => {
+		const settings = loadSettings();
+		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
+
+		const form = await request.formData();
+		const amountMinor = parseMoney(String(form.get('amount') ?? ''), settings.minorUnits);
+		if (amountMinor === null || amountMinor <= 0) {
+			return fail(400, { error: 'Enter an amount above zero.' });
+		}
+
+		try {
+			recordTransfer({
+				fromAccountId: Number(form.get('fromAccountId')),
+				toAccountId: Number(form.get('toAccountId')),
+				amountMinor,
+				movedOn: String(form.get('movedOn') || localToday(settings.timezone)),
+				iouReason: String(form.get('iouReason') ?? ''),
+				iouRepayBy: String(form.get('iouRepayBy') ?? '')
+			});
+		} catch (err) {
+			if (err instanceof IouRequired) return fail(422, { error: err.message, field: 'iouReason' });
+			return fail(400, { error: err instanceof Error ? err.message : 'Transfer failed.' });
+		}
+
+		redirect(303, '/accounts');
+	},
+
+	repayIou: async ({ request }) => {
+		const form = await request.formData();
+		const id = Number(form.get('id'));
+		if (!Number.isInteger(id)) return fail(400, { error: 'Unknown IOU.' });
+		repayIou(id);
+		redirect(303, '/accounts');
+	},
+
+	executeMove: async ({ request }) => {
+		const form = await request.formData();
+		const id = Number(form.get('id'));
+		if (!Number.isInteger(id)) return fail(400, { error: 'Unknown move.' });
+		executeAllocation(id);
+		redirect(303, '/accounts');
+	},
+
+	upsertGoal: async ({ request }) => {
+		const settings = loadSettings();
+		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
+
+		const form = await request.formData();
+		const label = String(form.get('label') ?? '').trim();
+		if (!label) {
+			return fail(400, {
+				error: 'Name it concretely — "Rent if I lose my job" saves more than "Buffer".'
+			});
+		}
+
+		const target = String(form.get('target') ?? '').trim();
+		const saved = String(form.get('saved') ?? '').trim();
+
+		upsertGoal({
+			id: Number(form.get('id')) || undefined,
+			accountId: Number(form.get('accountId')),
+			label,
+			targetMinor: target ? parseMoney(target, settings.minorUnits) : null,
+			savedMinor: saved ? (parseMoney(saved, settings.minorUnits) ?? 0) : 0,
+			targetDate: String(form.get('targetDate') ?? '') || null
+		});
+		redirect(303, '/accounts');
+	},
+
+	acceptPhase: async ({ request }) => {
+		const form = await request.formData();
+		acceptProposal(Number(form.get('id')));
+		redirect(303, '/accounts');
+	},
+
+	declinePhase: async ({ request }) => {
+		const form = await request.formData();
+		declineProposal(Number(form.get('id')));
+		redirect(303, '/accounts');
+	},
+
+	/** Move phase by hand. A downgrade is a normal event, not a failure. */
+	setPhase: async ({ request }) => {
+		const settings = loadSettings();
+		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
+
+		const form = await request.formData();
+		const phase = Number(form.get('phase'));
+		if (!Number.isInteger(phase)) return fail(400, { error: 'Unknown phase.' });
+
+		setPhase(phase, localToday(settings.timezone));
+		redirect(303, '/accounts');
+	}
+};

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.julian.split</string>
+
+  <!--
+    Same shape as com.julian.highcast.serve: KeepAlive so launchd restarts it
+    if it dies, RunAtLoad so it is there after a login without anyone starting
+    anything.
+
+    Absolute path to node on purpose — launchd gives a job a minimal PATH that
+    does not include /opt/homebrew/bin.
+  -->
+  <key>ProgramArguments</key><array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>__PROJECT__/scripts/serve.js</string>
+  </array>
+  <key>WorkingDirectory</key><string>__PROJECT__</string>
+
+  <key>EnvironmentVariables</key><dict>
+    <!--
+      Loopback, not 0.0.0.0. Split has no login, so the bind address IS the auth
+      boundary (invariant 10) — and scripts/serve.js refuses to start on a bare
+      host with a wildcard bind, which this is.
+    -->
+    <key>HOST</key><string>127.0.0.1</string>
+    <key>PORT</key><string>3000</string>
+    <key>ORIGIN</key><string>http://localhost:3000</string>
+    <key>TZ</key><string>Asia/Manila</string>
+    <key>DATABASE_URL</key><string>__PROJECT__/data/split.db</string>
+    <key>NODE_ENV</key><string>production</string>
+  </dict>
+
+  <key>KeepAlive</key><true/>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>__PROJECT__/data/serve.log</string>
+  <key>StandardErrorPath</key><string>__PROJECT__/data/serve.err</string>
+</dict></plist>

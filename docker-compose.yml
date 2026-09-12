@@ -1,0 +1,45 @@
+# Split — Tier A (Spec §9): one container, one file, one private network.
+#
+#   docker compose up -d
+#
+# The published port is bound to 127.0.0.1 on purpose. Out of the box nothing
+# is reachable from outside this machine, even if the host has a public IP and
+# an open firewall. Widening that is a deliberate edit, not a default.
+
+services:
+  split:
+    build: .
+    image: split:latest
+    container_name: split
+    restart: unless-stopped
+
+    # ── The auth boundary ─────────────────────────────────────────────────
+    # Split has no login. Whatever can reach this port reads the whole
+    # financial history, so the bind address is the security control
+    # (invariant 10).
+    #
+    #   127.0.0.1:3000   this machine only — the default
+    #   100.x.y.z:3000   your Tailscale address, reachable from your phone
+    #   0.0.0.0:3000     every interface. Do not.
+    ports:
+      - '127.0.0.1:3000:3000'
+
+    environment:
+      # adapter-node needs this to accept form posts (CSRF origin check).
+      # Set it to however you actually reach the app.
+      ORIGIN: ${SPLIT_ORIGIN:-http://localhost:3000}
+      TZ: ${SPLIT_TZ:-Asia/Manila}
+      DATABASE_URL: /app/data/split.db
+
+    # One file, and its nightly backups. This directory is the entire
+    # disaster-recovery story: copy it and you have moved the app.
+    volumes:
+      - ./data:/app/data
+
+    # A budgeting log for one person needs no headroom, and a cap turns a
+    # runaway into a restart rather than a dead machine.
+    mem_limit: 512m
+    pids_limit: 256
+
+    security_opt:
+      - no-new-privileges:true

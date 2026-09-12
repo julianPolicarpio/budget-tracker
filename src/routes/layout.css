@@ -1,0 +1,390 @@
+@import 'tailwindcss';
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Split — design tokens.
+
+   Dark is the primary mode and is authored first, against the dark surface,
+   because the ritual happens at 11pm (Spec §8.0b.5). Light is the alternate.
+
+   Palette from Spec §8.6, with one deviation: the muted ink in light mode is
+   darkened from #898781 to #6f6e69. The spec's value is the *axis* colour for
+   charts; at 3.4:1 it fails the 4.5:1 body-text floor (Spec §8.0b.10).
+   ───────────────────────────────────────────────────────────────────────── */
+
+:root {
+	color-scheme: dark;
+
+	--ground: #131312; /* page */
+	--surface: #1a1a19; /* raised: inputs, chips */
+	--hairline: #2c2c2a;
+	--hairline-strong: #3d3d3a;
+
+	--ink: #ffffff;
+	--ink-secondary: #c3c2b7;
+	--ink-muted: #898781;
+
+	--accent: #3987e5;
+	/* Categorical hues only where series identity is the subject. Category
+	   bars are magnitude, so they use series-1 alone, sorted descending —
+	   eight colours across eight categories is the classic mistake (§8.6). */
+	--series-1: #3987e5;
+	--series-2: #d95926;
+	--status-good: #0ca30c;
+	--status-warning: #fab219;
+	--status-critical: #d03b3b;
+
+	--font-ui:
+		ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'Helvetica Neue',
+		sans-serif;
+	--font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+
+	/* The one-handed floor. Nothing tappable goes below this. */
+	--touch: 2.75rem;
+}
+
+@media (prefers-color-scheme: light) {
+	:root {
+		color-scheme: light;
+
+		--ground: #fcfcfb;
+		--surface: #f2f1ec;
+		--hairline: #e1e0d9;
+		--hairline-strong: #cbcac1;
+
+		--ink: #0b0b0b;
+		--ink-secondary: #52514e;
+		--ink-muted: #6f6e69;
+
+		--accent: #2a78d6;
+		--series-1: #2a78d6;
+		--series-2: #eb6834;
+		--status-good: #0a7a0a;
+		--status-warning: #8a5f00;
+		--status-critical: #c22f2f;
+	}
+}
+
+@theme inline {
+	--color-ground: var(--ground);
+	--color-surface: var(--surface);
+	--color-hairline: var(--hairline);
+	--color-hairline-strong: var(--hairline-strong);
+	--color-ink: var(--ink);
+	--color-ink-secondary: var(--ink-secondary);
+	--color-ink-muted: var(--ink-muted);
+	--color-accent: var(--accent);
+	--font-ui: var(--font-ui);
+	--font-mono: var(--font-mono);
+}
+
+html {
+	background: var(--ground);
+	-webkit-text-size-adjust: 100%;
+}
+
+body {
+	margin: 0;
+	background: var(--ground);
+	color: var(--ink);
+	font-family: var(--font-ui);
+	font-size: 1rem;
+	line-height: 1.5;
+	-webkit-font-smoothing: antialiased;
+	/* The log happens in bed, one-handed. Nothing here is text to select. */
+	-webkit-tap-highlight-color: transparent;
+}
+
+/* Instrument legend: the small uppercase mono labels. Numerals are never
+   letterspaced (Spec §8.0b.8) — these labels carry no figures. */
+.legend {
+	font-family: var(--font-mono);
+	font-size: 0.6875rem;
+	font-weight: 500;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	color: var(--ink-muted);
+}
+
+:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+	border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
+
+	/*
+	 * Opt back in for a pure opacity fade. A cross-fade carries no vestibular
+	 * risk; movement does. Motion is expressed through the independent
+	 * `translate` and `scale` properties precisely so it can be nulled here
+	 * without disturbing a `transform` doing layout work — the overlay panel
+	 * is centred with translateX(-50%) and must keep it.
+	 */
+	[data-motion='fade'] {
+		animation-duration: 160ms !important;
+		transition-duration: 160ms !important;
+		translate: none !important;
+		scale: none !important;
+	}
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   The REVIEW register (Spec §8.0b.1).
+
+   DAILY screens are calm and near-empty; REVIEW screens are dense, structured
+   and information-rich. The difference must be legible in half a second,
+   without reading a word, so the user always knows which mode they are in.
+   That is what stops the withholding layer eroding: it is a visible design
+   language, not an invisible invariant.
+
+   These are global because three screens share the register. Anything specific
+   to one screen stays scoped to that component.
+   ───────────────────────────────────────────────────────────────────────── */
+
+.sheet {
+	max-width: 46rem;
+	margin-inline: auto;
+	padding: 1.5rem 1.25rem 4rem;
+	display: flex;
+	flex-direction: column;
+	gap: 1.5rem;
+}
+
+.eyebrow {
+	font-family: var(--font-mono);
+	font-size: 0.6875rem;
+	font-weight: 500;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	color: var(--ink-muted);
+	margin: 0;
+}
+
+.masthead {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 1rem;
+	padding-bottom: 1rem;
+	border-bottom: 1px solid var(--hairline);
+}
+
+.masthead h1 {
+	margin: 0.25rem 0 0;
+	font-size: 1.5rem;
+	font-weight: 500;
+	font-variant-numeric: tabular-nums;
+}
+
+.exit {
+	font-size: 0.875rem;
+	color: var(--ink-muted);
+	text-decoration: none;
+	border: 1px solid var(--hairline-strong);
+	border-radius: 999px;
+	padding: 0.4rem 0.85rem;
+	white-space: nowrap;
+}
+
+.exit:hover {
+	color: var(--ink);
+	border-color: var(--ink-muted);
+}
+
+.step {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+}
+
+.step h2 {
+	margin: 0;
+	font-size: 1.25rem;
+	font-weight: 500;
+}
+
+.lede {
+	margin: 0;
+	max-width: 42ch;
+	color: var(--ink-secondary);
+	font-size: 0.9375rem;
+}
+
+.empty {
+	margin: 0;
+	padding: 1rem;
+	border: 1px dashed var(--hairline-strong);
+	border-radius: 0.5rem;
+	color: var(--ink-muted);
+	font-size: 0.875rem;
+}
+
+.error {
+	margin: 0;
+	padding: 0.75rem 1rem;
+	border-left: 3px solid var(--status-critical);
+	background: var(--surface);
+	font-size: 0.875rem;
+}
+
+.card {
+	background: var(--surface);
+	border: 1px solid var(--hairline);
+	border-radius: 0.625rem;
+	padding: 1rem;
+}
+
+.sheet form {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+}
+
+.row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.75rem;
+	align-items: center;
+}
+
+.row form {
+	flex-direction: row;
+}
+
+.primary,
+.ghost {
+	min-height: 2.75rem;
+	padding: 0 1.25rem;
+	border-radius: 0.5rem;
+	font-family: inherit;
+	font-size: 0.9375rem;
+	cursor: pointer;
+	align-self: flex-start;
+}
+
+.primary {
+	background: var(--ink);
+	color: var(--ground);
+	border: 0;
+	font-weight: 500;
+}
+
+.ghost {
+	background: none;
+	border: 1px solid var(--hairline-strong);
+	color: var(--ink-secondary);
+	display: inline-flex;
+	align-items: center;
+	text-decoration: none;
+}
+
+.ghost:hover {
+	color: var(--ink);
+}
+
+.field {
+	display: flex;
+	flex-direction: column;
+	gap: 0.35rem;
+}
+
+.field-label {
+	font-family: var(--font-mono);
+	font-size: 0.6875rem;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--ink-muted);
+}
+
+.field-input {
+	display: flex;
+	align-items: baseline;
+	gap: 0.4rem;
+	background: var(--surface);
+	border: 1px solid var(--hairline-strong);
+	border-radius: 0.5rem;
+	padding: 0 0.75rem;
+}
+
+.field-input:focus-within {
+	border-color: var(--accent);
+}
+
+.field-sym {
+	color: var(--ink-muted);
+	font-size: 0.875rem;
+}
+
+.field-input input {
+	flex: 1 1 auto;
+	width: 100%;
+	min-height: 2.75rem;
+	background: none;
+	border: 0;
+	color: var(--ink);
+	font-family: var(--font-mono);
+	font-size: 1rem;
+	font-variant-numeric: tabular-nums;
+}
+
+.field-input input:focus {
+	outline: none;
+}
+
+.sheet textarea,
+.sheet select {
+	background: var(--surface);
+	border: 1px solid var(--hairline-strong);
+	border-radius: 0.5rem;
+	color: var(--ink);
+	font-family: inherit;
+	font-size: 0.9375rem;
+	padding: 0.75rem;
+	min-height: 2.75rem;
+}
+
+.sheet textarea {
+	resize: vertical;
+}
+
+.sheet textarea:focus,
+.sheet select:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+.sheet code {
+	font-family: var(--font-mono);
+	font-size: 0.8125em;
+}
+
+.sheet table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.9375rem;
+}
+
+.pending {
+	font-size: 0.8125rem;
+	color: var(--ink-muted);
+	font-variant-numeric: normal;
+}
+
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+	border: 0;
+}

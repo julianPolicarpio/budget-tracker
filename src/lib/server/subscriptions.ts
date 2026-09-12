@@ -1,0 +1,359 @@
+/**
+ * Subscriptions — Bills items that keep charging until a human stops them
+ * (Spec §158, §267, §374).
+ *
+ * The money here is the small half of the problem. The large half is that a
+ * recurring charge stops being a decision after the first month: F12's
+ * snowball is assembled entirely from amounts too small to argue with
+ * individually. So the surface this module feeds is a *deadline*, not a
+ * balance, and the weekly review gets a cull step rather than a total.
+ *
+ * Nothing in here touches Spend, the daily figure, or the eight categories'
+ * weekly totals. Bills never do (Spec §158) — `category` is carried only so
+ * the review can group the cull.
+ */
+
+import { and, asc, eq, isNotNull, isNull, lte } from 'drizzle-orm';
+import { db, schema } from './db';
+import { addDays, daysBetween } from './clock';
+import { addMonths } from './irregulars';
+import { CADENCE_MONTHS, type Cadence } from '$lib/subscription-cadence';
+
+export type { Cadence };
+
+
+export type Subscription = typeof schema.subscription.$inferSelect;
+
+/** Stage 2 fires this close to the deadline, whatever `leadDays` was set to. */
+export const FINAL_ALERT_DAYS = 7;
+
+/**
+ * What this costs over a year.
+ *
+ * The `× 12` here is NOT the bug invariant 7 forbids. That rule is about
+ * income: pay cycles do not divide the year evenly, so bi-weekly is 26
+ * arrivals and `projectArrivals()` is the only honest path to an allocation.
+ * A monthly *subscription* genuinely bills twelve times a year, and this
+ * figure never becomes an allocation — it exists to be read aloud during the
+ * cull, where "₱285 a month" and "₱3,420 a year" are the same fact told at two
+ * very different volumes.
+ */
+export function annualisedMinor(sub: Pick<Subscription, 'amountMinor' | 'cadence'>): number {
+	return sub.amountMinor * (12 / CADENCE_MONTHS[sub.cadence as Cadence]);
+}
+
+/** The next charge after this one, at the subscription's own cadence. */
+export function advanceCharge(sub: Pick<Subscription, 'nextChargeOn' | 'cadence'>): string {
+	return addMonths(sub.nextChargeOn, CADENCE_MONTHS[sub.cadence as Cadence]);
+}
+
+export function listSubscriptions(includeCancelled = false): Subscription[] {
+	const q = db.select().from(schema.subscription);
+	const rows = includeCancelled
+		? q.orderBy(asc(schema.subscription.nextChargeOn)).all()
+		: q
+				.where(isNull(schema.subscription.cancelledAt))
+				.orderBy(asc(schema.subscription.nextChargeOn))
+				.all();
+	return rows;
+}
+
+export function getSubscription(id: number): Subscription | undefined {
+	return db.select().from(schema.subscription).where(eq(schema.subscription.id, id)).get();
+}
+
+export interface NewSubscription {
+	label: string;
+	vendor?: string | null;
+	amountMinor: number;
+	taxMinor?: number | null;
+	cadence: Cadence;
+	nextChargeOn: string;
+	trialEndsOn?: string | null;
+	cancelByOn?: string | null;
+	leadDays?: number;
+	category?: string | null;
+	note?: string | null;
+	isEssential?: boolean;
+}
+
+/**
+ * The steady per-period cost of every live commitment.
+ *
+ * Deliberately NOT the irregulars accrual shape. `requiredAccrualPerPeriod()`
+ * divides by whole periods remaining until a dated instance, which is right
+ * for a one-off lump you must have ready by a deadline — the figure rises as
+ * the date closes in. A recurring bill has no deadline to converge on; it just
+ * keeps arriving. Using that shape would make the wifi allocation lurch from
+ * ₱150 to ₱187 to ₱250 to ₱375 across a month and then reset, which describes
+ * nothing real.
+ *
+ * So this is the long-run rate: what the commitment costs per day, times the
+ * days in a period. The `× 12` implicit in AVG_DAYS_PER_MONTH is not the bug
+ * invariant 7 forbids — that rule governs INCOME, where pay cycles genuinely
+ * do not divide the year evenly. A monthly bill genuinely bills twelve times a
+ * year, and this figure is a cost reservation, never an arrival projection.
+ */
+const AVG_DAYS_PER_MONTH = 365.25 / 12;
+
+export function commitmentsPerPeriod(daysPerPeriod: number, today?: string): number {
+	return Math.round(
+		listSubscriptions().reduce((sum, sub) => {
+			// A commitment still inside its free trial costs nothing yet. Reserving
+			// for it would park real money against a charge that may never arrive
+			// — the entire point of the deadline is that you get to say no. It
+			// starts costing on the day it starts charging, and the alert exists
+			// to make sure that day is not a surprise.
+			if (today && sub.trialEndsOn !== null && sub.trialEndsOn > today) return sum;
+
+			const daysBetweenCharges = CADENCE_MONTHS[sub.cadence as Cadence] * AVG_DAYS_PER_MONTH;
+			return sum + (sub.amountMinor * daysPerPeriod) / daysBetweenCharges;
+		}, 0)
+	);
+}
+
+/** Split by whether cancelling is even an option — the cull only hunts one side. */
+export function commitmentsByKind(): { essential: Subscription[]; discretionary: Subscription[] } {
+	const live = listSubscriptions();
+	return {
+		essential: live.filter((s) => s.isEssential === 1),
+		discretionary: live.filter((s) => s.isEssential !== 1)
+	};
+}
+
+export function createSubscription(input: NewSubscription, now: Date = new Date()): number {
+	const row = db
+		.insert(schema.subscription)
+		.values({
+			label: input.label,
+			vendor: input.vendor ?? null,
+			amountMinor: input.amountMinor,
+			taxMinor: input.taxMinor ?? null,
+			cadence: input.cadence,
+			nextChargeOn: input.nextChargeOn,
+			trialEndsOn: input.trialEndsOn ?? null,
+			cancelByOn: input.cancelByOn ?? null,
+			leadDays: input.leadDays ?? 30,
+			alertStage: 0,
+			alertedAt: null,
+			lastUsedOn: null,
+			category: input.category ?? null,
+			note: input.note ?? null,
+			createdAt: now.toISOString(),
+			cancelledAt: null,
+			isEssential: input.isEssential ? 1 : 0
+		})
+		.returning({ id: schema.subscription.id })
+		.get();
+	return row.id;
+}
+
+export interface SubscriptionEdit extends NewSubscription {
+	leadDays: number;
+}
+
+/**
+ * Revise a recorded commitment.
+ *
+ * The one non-obvious rule: **moving the deadline re-arms the alerts.** A
+ * warning already sent describes a date that no longer exists, so leaving
+ * `alertStage` where it was would mean a trial you just pushed from September
+ * to next August never warns you again. Editing any other field leaves the
+ * alert state alone, so correcting a typo in a label does not re-nag you about
+ * a decision you have already been warned about.
+ */
+export function updateSubscription(id: number, input: SubscriptionEdit): void {
+	const before = getSubscription(id);
+	if (!before) return;
+
+	const deadlineMoved =
+		(before.cancelByOn ?? null) !== (input.cancelByOn ?? null) ||
+		(before.trialEndsOn ?? null) !== (input.trialEndsOn ?? null);
+
+	db.update(schema.subscription)
+		.set({
+			label: input.label,
+			vendor: input.vendor ?? null,
+			amountMinor: input.amountMinor,
+			taxMinor: input.taxMinor ?? null,
+			cadence: input.cadence,
+			nextChargeOn: input.nextChargeOn,
+			trialEndsOn: input.trialEndsOn ?? null,
+			cancelByOn: input.cancelByOn ?? null,
+			leadDays: input.leadDays,
+			category: input.category ?? null,
+			note: input.note ?? null,
+			isEssential: input.isEssential ? 1 : 0,
+			...(deadlineMoved ? { alertStage: 0, alertedAt: null } : {})
+		})
+		.where(eq(schema.subscription.id, id))
+		.run();
+}
+
+/** Undo an "Ended it" — the button is one click and mistakes are cheap to make. */
+export function restoreSubscription(id: number): void {
+	db.update(schema.subscription)
+		.set({ cancelledAt: null })
+		.where(eq(schema.subscription.id, id))
+		.run();
+}
+
+export function cancelSubscription(id: number, now: Date = new Date()): void {
+	db.update(schema.subscription)
+		.set({ cancelledAt: now.toISOString() })
+		.where(eq(schema.subscription.id, id))
+		.run();
+}
+
+/**
+ * Keep it: clear the trial, roll to the next charge, and re-arm the alerts.
+ *
+ * Re-arming matters. A subscription you decided to keep in 2027 is one you
+ * should be asked about again in 2028 — the cull is not a one-time gate.
+ */
+export function keepSubscription(id: number, today: string): void {
+	const sub = getSubscription(id);
+	if (!sub) return;
+
+	const nextCharge = sub.nextChargeOn <= today ? advanceCharge(sub) : sub.nextChargeOn;
+	db.update(schema.subscription)
+		.set({
+			nextChargeOn: nextCharge,
+			trialEndsOn: null,
+			// The next decision point is the next renewal, not the dead trial date.
+			cancelByOn: nextCharge,
+			alertStage: 0,
+			alertedAt: null,
+			lastUsedOn: today
+		})
+		.where(eq(schema.subscription.id, id))
+		.run();
+}
+
+export function markUsed(id: number, today: string): void {
+	db.update(schema.subscription)
+		.set({ lastUsedOn: today })
+		.where(eq(schema.subscription.id, id))
+		.run();
+}
+
+export interface PendingAlert {
+	sub: Subscription;
+	stage: 1 | 2;
+	daysLeft: number;
+}
+
+/**
+ * Live subscriptions whose deadline has entered a window they have not yet
+ * been alerted for.
+ *
+ * Read the whole live set and filter in TypeScript rather than expressing the
+ * window in SQL: the set is a handful of rows, and the date arithmetic stays
+ * next to the rule it implements instead of being split across two languages.
+ */
+export function pendingAlerts(today: string): PendingAlert[] {
+	const live = db
+		.select()
+		.from(schema.subscription)
+		.where(and(isNull(schema.subscription.cancelledAt), isNotNull(schema.subscription.cancelByOn)))
+		.all();
+
+	const out: PendingAlert[] = [];
+	for (const sub of live) {
+		const deadline = sub.cancelByOn!;
+		const daysLeft = daysBetween(today, deadline);
+
+		// Past the deadline there is nothing left to decide, and a notification
+		// about a charge that already landed is noise.
+		if (daysLeft < 0) continue;
+
+		if (sub.alertStage < 1 && daysLeft <= sub.leadDays) {
+			out.push({ sub, stage: 1, daysLeft });
+		} else if (sub.alertStage < 2 && daysLeft <= FINAL_ALERT_DAYS) {
+			out.push({ sub, stage: 2, daysLeft });
+		}
+	}
+	return out;
+}
+
+export function recordAlert(id: number, stage: 1 | 2, now: Date = new Date()): void {
+	db.update(schema.subscription)
+		.set({ alertStage: stage, alertedAt: now.toISOString() })
+		.where(eq(schema.subscription.id, id))
+		.run();
+}
+
+/**
+ * The single most urgent deadline, for the Today screen's horizon line.
+ *
+ * Returns a date and a count of days — never an amount. The Today screen
+ * withholds figures by design (Spec §4.2), and "₱285/month starts in 6 days"
+ * on the daily surface would be a balance wearing a hat.
+ */
+export interface SubscriptionHorizon {
+	id: number;
+	label: string;
+	deadline: string;
+	daysLeft: number;
+	isTrial: boolean;
+}
+
+export function subscriptionHorizon(today: string): SubscriptionHorizon | null {
+	const rows = db
+		.select()
+		.from(schema.subscription)
+		.where(
+			and(
+				isNull(schema.subscription.cancelledAt),
+				isNotNull(schema.subscription.cancelByOn),
+				lte(schema.subscription.cancelByOn, addDays(today, 30))
+			)
+		)
+		.orderBy(asc(schema.subscription.cancelByOn))
+		.all();
+
+	for (const sub of rows) {
+		const daysLeft = daysBetween(today, sub.cancelByOn!);
+		if (daysLeft < 0) continue;
+		return {
+			id: sub.id,
+			label: sub.label,
+			deadline: sub.cancelByOn!,
+			daysLeft,
+			isTrial: sub.trialEndsOn !== null
+		};
+	}
+	return null;
+}
+
+/**
+ * The cull list (Spec §267): every live subscription, flagged by whether it
+ * has been used in the last 30 days. Never used at all counts as stale — an
+ * unrecorded subscription is the exact thing the cull is hunting.
+ */
+export interface CullRow {
+	sub: Subscription;
+	annualisedMinor: number;
+	staleDays: number | null;
+	stale: boolean;
+}
+
+export function cullList(today: string): CullRow[] {
+	// Essential commitments are excluded outright. "Used your home internet in
+	// the last 30 days?" is not a question, and a cull that asks it trains you
+	// to skim past the ones that are real.
+	return commitmentsByKind().discretionary.map((sub) => {
+		const staleDays = sub.lastUsedOn === null ? null : daysBetween(sub.lastUsedOn, today);
+		return {
+			sub,
+			annualisedMinor: annualisedMinor(sub),
+			staleDays,
+			stale: staleDays === null || staleDays > 30
+		};
+	});
+}
+
+/** What the whole live set costs per year — the cull's headline figure. */
+export function annualisedTotalMinor(): number {
+	return listSubscriptions().reduce((sum, s) => sum + annualisedMinor(s), 0);
+}

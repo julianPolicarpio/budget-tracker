@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Split">
+	<!--
+		The dimension line: the app's one idea, at 32px. A range annotated the
+		way a technical drawing annotates one — because the whole thesis is that
+		the daily figure is a span, not a balance (F5).
+	-->
+	<rect width="32" height="32" rx="7" fill="#131312" />
+	<g stroke="#ffffff" stroke-width="1.6" stroke-linecap="square">
+		<line x1="7" y1="11" x2="7" y2="21" />
+		<line x1="25" y1="11" x2="25" y2="21" />
+		<line x1="7" y1="16" x2="25" y2="16" />
+	</g>
+</svg>

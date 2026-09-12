@@ -1,0 +1,48 @@
+{
+	"name": "budget-tracker",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"db:migrate": "node scripts/migrate.js",
+		"db:init": "node scripts/init.js",
+		"period:open": "node scripts/open-period.js",
+		"backup": "node scripts/backup.js",
+		"restore": "node scripts/restore.js",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"test:unit": "vitest",
+		"test": "npm run test:unit -- --run",
+		"lint": "prettier --check .",
+		"format": "prettier --write .",
+		"deploy": "npm run build && launchctl kickstart -k gui/$(id -u)/com.julian.split",
+		"logs": "tail -f data/serve.log"
+	},
+	"devDependencies": {
+		"@sveltejs/adapter-node": "^5.5.4",
+		"@sveltejs/kit": "^2.63.0",
+		"@sveltejs/vite-plugin-svelte": "^7.1.2",
+		"@tailwindcss/vite": "^4.3.0",
+		"@types/better-sqlite3": "^9.6.0",
+		"@types/node-cron": "^3.0.11",
+		"prettier": "^3.8.3",
+		"prettier-plugin-svelte": "^4.1.0",
+		"prettier-plugin-tailwindcss": "^0.8.0",
+		"svelte": "^5.56.1",
+		"svelte-check": "^4.6.0",
+		"tailwindcss": "^4.3.0",
+		"typescript": "^6.0.3",
+		"vite": "^8.0.16",
+		"vitest": "^4.1.8"
+	},
+	"dependencies": {
+		"@observablehq/plot": "^0.6.17",
+		"better-sqlite3": "^13.0.3",
+		"drizzle-orm": "^0.45.2",
+		"node-cron": "^4.6.0"
+	}
+}
