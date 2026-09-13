@@ -189,6 +189,7 @@ export function listGoals(): (Goal & { accountName: string })[] {
 			targetDate: schema.goal.targetDate,
 			status: schema.goal.status,
 			createdAt: schema.goal.createdAt,
+			userId: schema.goal.userId,
 			accountName: schema.account.name
 		})
 		.from(schema.goal)

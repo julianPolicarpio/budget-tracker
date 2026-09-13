@@ -311,7 +311,9 @@ export function closeLogDay(date: string, now: Date = new Date(), isCatchup = fa
 	db.insert(schema.logDay)
 		.values({ loggedOn: date, entryCount: count, isCatchup: isCatchup ? 1 : 0, closedAt: stamp })
 		.onConflictDoUpdate({
-			target: schema.logDay.loggedOn,
+			// log_day's primary key is (user_id, logged_on) as of migration
+			// 0008 — the conflict target must name the real key, not just the date.
+			target: [schema.logDay.userId, schema.logDay.loggedOn],
 			set: { entryCount: count, closedAt: stamp }
 		})
 		.run();

@@ -11,6 +11,7 @@ import Database from 'better-sqlite3';
 import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { applyMigrations } from './apply-migrations.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const dbPath = process.env.DATABASE_URL ?? join(root, 'data', 'split.db');
@@ -53,40 +54,14 @@ mkdirSync(join(dirname(dbPath), 'backups'), { recursive: true });
 const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
-db.exec(`CREATE TABLE IF NOT EXISTS _migration (
-  name       TEXT PRIMARY KEY,
-  applied_at TEXT NOT NULL
-)`);
-
-const applied = new Set(
-	db
-		.prepare('SELECT name FROM _migration')
-		.all()
-		.map((r) => r.name)
-);
-const migrations = join(root, 'migrations');
 let count = 0;
-
-for (const file of readdirSync(migrations)
-	.filter((f) => f.endsWith('.sql'))
-	.sort()) {
-	if (applied.has(file)) continue;
-	db.exec('BEGIN');
-	try {
-		db.exec(readFileSync(join(migrations, file), 'utf8'));
-		db.prepare('INSERT INTO _migration (name, applied_at) VALUES (?, ?)').run(
-			file,
-			new Date().toISOString()
-		);
-		db.exec('COMMIT');
-	} catch (err) {
-		db.exec('ROLLBACK');
-		console.error(`Migration ${file} failed, nothing was applied: ${err.message}`);
-		process.exit(1);
-	}
-	console.log(`[migrate] applied ${file}`);
-	count++;
+try {
+	count = applyMigrations(db, join(root, 'migrations'), (f) => console.log(`[migrate] applied ${f}`));
+} catch (err) {
+	console.error(`Migration failed: ${err.message}`);
+	process.exit(1);
 }
+
 db.close();
 
 console.log(

@@ -8,6 +8,7 @@ import { eq } from 'drizzle-orm';
 import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { applyMigrations } from '../../../scripts/apply-migrations.js';
 
 type Mod = {
 	db: typeof import('./db').db;
@@ -30,12 +31,10 @@ beforeAll(async () => {
 	process.env.SPLIT_DISABLE_JOBS = '1';
 
 	const dbMod = await import('./db');
-	const migrations = resolve('migrations');
-	for (const f of readdirSync(migrations)
-		.filter((f) => f.endsWith('.sql'))
-		.sort()) {
-		dbMod.sqlite.exec(readFileSync(join(migrations, f), 'utf8'));
-	}
+	// The one runner, same as production. These five suites each had their own
+	// copy of this loop, and every copy broke the moment a migration needed
+	// foreign keys off to rebuild a table.
+	applyMigrations(dbMod.sqlite, resolve('migrations'));
 
 	m = {
 		db: dbMod.db,

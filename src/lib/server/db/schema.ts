@@ -5,24 +5,57 @@
  * queries are typed; it never creates or alters anything.
  */
 
-import { sqliteTable, integer, real, text, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import {
+	sqliteTable,
+	integer,
+	real,
+	text,
+	index,
+	uniqueIndex,
+	primaryKey
+} from 'drizzle-orm/sqlite-core';
 
-export const settings = sqliteTable('settings', {
+/**
+ * The person a row belongs to (migration 0008). Named app_user, never
+ * `account` — `account` already means a money bucket (Spend, Bills,
+ * Irregulars) and reusing it would make every join ambiguous to read.
+ * Ships with no authentication: google_sub is nullable until sign-in exists.
+ */
+export const appUser = sqliteTable('app_user', {
 	id: integer('id').primaryKey(),
-	currencyCode: text('currency_code').notNull(),
-	currencySymbol: text('currency_symbol').notNull(),
-	minorUnits: integer('minor_units').notNull(),
-	roundingStep: integer('rounding_step').notNull(),
-	periodKind: text('period_kind', { enum: ['weekly', 'semimonthly', 'monthly'] }).notNull(),
-	weekStartsOn: integer('week_starts_on').notNull(),
-	haircutPct: integer('haircut_pct').notNull(),
-	bandPct: integer('band_pct').notNull(),
-	phase: integer('phase').notNull(),
-	timezone: text('timezone').notNull(),
-	// Phase 3 supersedes this with weeklyTakeHome() over real income rows.
-	weeklyTakeHomeMinor: integer('weekly_take_home_minor'),
-	createdAt: text('created_at').notNull()
+	googleSub: text('google_sub').unique(),
+	email: text('email'),
+	displayName: text('display_name'),
+	createdAt: text('created_at').notNull(),
+	isDemo: integer('is_demo').notNull().default(0),
+	deletedAt: text('deleted_at')
 });
+
+export const settings = sqliteTable(
+	'settings',
+	{
+		id: integer('id').primaryKey(),
+		currencyCode: text('currency_code').notNull(),
+		currencySymbol: text('currency_symbol').notNull(),
+		minorUnits: integer('minor_units').notNull(),
+		roundingStep: integer('rounding_step').notNull(),
+		periodKind: text('period_kind', { enum: ['weekly', 'semimonthly', 'monthly'] }).notNull(),
+		weekStartsOn: integer('week_starts_on').notNull(),
+		haircutPct: integer('haircut_pct').notNull(),
+		bandPct: integer('band_pct').notNull(),
+		phase: integer('phase').notNull(),
+		timezone: text('timezone').notNull(),
+		// Phase 3 supersedes this with weeklyTakeHome() over real income rows.
+		weeklyTakeHomeMinor: integer('weekly_take_home_minor'),
+		createdAt: text('created_at').notNull(),
+		// user_id is NOT NULL on every tenanted table so an unowned row cannot
+		// exist (migration 0008). `.default(1)` is a backfill device for that
+		// migration, not an application default — code should set the owner
+		// explicitly once it exists, not lean on this.
+		userId: integer('user_id').notNull().default(1)
+	},
+	(t) => [uniqueIndex('idx_settings_user').on(t.userId)]
+);
 
 export const period = sqliteTable(
 	'period',
@@ -42,9 +75,13 @@ export const period = sqliteTable(
 		// Set by closePeriod() when the range has no logged data (Spec §4.1,
 		// migration 0007). Excludes the period from trend averages and review
 		// comparisons — it is missing data, not a good week.
-		isGap: integer('is_gap').notNull().default(0)
+		isGap: integer('is_gap').notNull().default(0),
+		userId: integer('user_id').notNull().default(1)
 	},
-	(t) => [uniqueIndex('idx_period_open').on(t.startsOn)]
+	(t) => [
+		uniqueIndex('idx_period_open').on(t.userId, t.startsOn),
+		index('idx_period_user').on(t.userId, t.startsOn)
+	]
 );
 
 export const txn = sqliteTable(
@@ -63,26 +100,36 @@ export const txn = sqliteTable(
 		// it. See metrics.ts — `trip_id IS NULL` lives in one selector.
 		tripId: integer('trip_id'),
 		amountLocalMinor: integer('amount_local_minor'),
-		fxRateUsed: real('fx_rate_used')
+		fxRateUsed: real('fx_rate_used'),
+		userId: integer('user_id').notNull().default(1)
 	},
-	(t) => [index('idx_txn_date').on(t.spentOn), index('idx_txn_period').on(t.periodId, t.category)]
+	(t) => [
+		index('idx_txn_date').on(t.spentOn),
+		index('idx_txn_period').on(t.periodId, t.category),
+		index('idx_txn_user_date').on(t.userId, t.spentOn)
+	]
 );
 
-export const account = sqliteTable('account', {
-	id: integer('id').primaryKey({ autoIncrement: true }),
-	slug: text('slug').notNull(),
-	name: text('name').notNull(),
-	kind: text('kind', {
-		enum: ['inflow', 'bills', 'spend', 'irregulars', 'buffer', 'grow']
-	}).notNull(),
-	institution: text('institution'),
-	isCommitted: integer('is_committed').notNull(),
-	hasCard: integer('has_card').notNull(),
-	balanceMinor: integer('balance_minor').notNull(),
-	balanceAsOf: text('balance_as_of'),
-	sortOrder: integer('sort_order').notNull(),
-	archivedAt: text('archived_at')
-});
+export const account = sqliteTable(
+	'account',
+	{
+		id: integer('id').primaryKey({ autoIncrement: true }),
+		slug: text('slug').notNull(),
+		name: text('name').notNull(),
+		kind: text('kind', {
+			enum: ['inflow', 'bills', 'spend', 'irregulars', 'buffer', 'grow']
+		}).notNull(),
+		institution: text('institution'),
+		isCommitted: integer('is_committed').notNull(),
+		hasCard: integer('has_card').notNull(),
+		balanceMinor: integer('balance_minor').notNull(),
+		balanceAsOf: text('balance_as_of'),
+		sortOrder: integer('sort_order').notNull(),
+		archivedAt: text('archived_at'),
+		userId: integer('user_id').notNull().default(1)
+	},
+	(t) => [uniqueIndex('idx_account_user_slug').on(t.userId, t.slug)]
+);
 
 export const goal = sqliteTable('goal', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
@@ -93,7 +140,8 @@ export const goal = sqliteTable('goal', {
 	imageRef: text('image_ref'),
 	targetDate: text('target_date'),
 	status: text('status', { enum: ['active', 'reached', 'abandoned'] }).notNull(),
-	createdAt: text('created_at').notNull()
+	createdAt: text('created_at').notNull(),
+	userId: integer('user_id').notNull().default(1)
 });
 
 export const transfer = sqliteTable('transfer', {
@@ -105,24 +153,30 @@ export const transfer = sqliteTable('transfer', {
 	iouReason: text('iou_reason'),
 	iouRepayBy: text('iou_repay_by'),
 	repaidAt: text('repaid_at'),
-	createdAt: text('created_at').notNull()
+	createdAt: text('created_at').notNull(),
+	userId: integer('user_id').notNull().default(1)
 });
 
-export const irregular = sqliteTable('irregular', {
-	id: integer('id').primaryKey({ autoIncrement: true }),
-	label: text('label').notNull(),
-	amountMinor: integer('amount_minor').notNull(),
-	isEstimate: integer('is_estimate').notNull(),
-	cadence: text('cadence', {
-		enum: ['one_off', 'monthly', 'quarterly', 'semiannual', 'annual', 'every_n_years']
-	}).notNull(),
-	cadenceN: integer('cadence_n'),
-	nextDueOn: text('next_due_on').notNull(),
-	category: text('category'),
-	paddingPct: integer('padding_pct').notNull(),
-	createdAt: text('created_at').notNull(),
-	archivedAt: text('archived_at')
-});
+export const irregular = sqliteTable(
+	'irregular',
+	{
+		id: integer('id').primaryKey({ autoIncrement: true }),
+		label: text('label').notNull(),
+		amountMinor: integer('amount_minor').notNull(),
+		isEstimate: integer('is_estimate').notNull(),
+		cadence: text('cadence', {
+			enum: ['one_off', 'monthly', 'quarterly', 'semiannual', 'annual', 'every_n_years']
+		}).notNull(),
+		cadenceN: integer('cadence_n'),
+		nextDueOn: text('next_due_on').notNull(),
+		category: text('category'),
+		paddingPct: integer('padding_pct').notNull(),
+		createdAt: text('created_at').notNull(),
+		archivedAt: text('archived_at'),
+		userId: integer('user_id').notNull().default(1)
+	},
+	(t) => [index('idx_irregular_user').on(t.userId)]
+);
 
 /**
  * A Bills item with a decision deadline (Spec §158, §267, §374).
@@ -130,28 +184,33 @@ export const irregular = sqliteTable('irregular', {
  * Not an Irregular: the amount is contractual, so the +25% padding that makes
  * an estimate honest would make this one wrong.
  */
-export const subscription = sqliteTable('subscription', {
-	id: integer('id').primaryKey({ autoIncrement: true }),
-	label: text('label').notNull(),
-	vendor: text('vendor'),
-	amountMinor: integer('amount_minor').notNull(),
-	taxMinor: integer('tax_minor'),
-	cadence: text('cadence', {
-		enum: ['monthly', 'quarterly', 'semiannual', 'annual']
-	}).notNull(),
-	nextChargeOn: text('next_charge_on').notNull(),
-	trialEndsOn: text('trial_ends_on'),
-	cancelByOn: text('cancel_by_on'),
-	leadDays: integer('lead_days').notNull(),
-	alertStage: integer('alert_stage').notNull(),
-	alertedAt: text('alerted_at'),
-	lastUsedOn: text('last_used_on'),
-	category: text('category'),
-	note: text('note'),
-	createdAt: text('created_at').notNull(),
-	cancelledAt: text('cancelled_at'),
-	isEssential: integer('is_essential').notNull()
-});
+export const subscription = sqliteTable(
+	'subscription',
+	{
+		id: integer('id').primaryKey({ autoIncrement: true }),
+		label: text('label').notNull(),
+		vendor: text('vendor'),
+		amountMinor: integer('amount_minor').notNull(),
+		taxMinor: integer('tax_minor'),
+		cadence: text('cadence', {
+			enum: ['monthly', 'quarterly', 'semiannual', 'annual']
+		}).notNull(),
+		nextChargeOn: text('next_charge_on').notNull(),
+		trialEndsOn: text('trial_ends_on'),
+		cancelByOn: text('cancel_by_on'),
+		leadDays: integer('lead_days').notNull(),
+		alertStage: integer('alert_stage').notNull(),
+		alertedAt: text('alerted_at'),
+		lastUsedOn: text('last_used_on'),
+		category: text('category'),
+		note: text('note'),
+		createdAt: text('created_at').notNull(),
+		cancelledAt: text('cancelled_at'),
+		isEssential: integer('is_essential').notNull(),
+		userId: integer('user_id').notNull().default(1)
+	},
+	(t) => [index('idx_subscription_user').on(t.userId)]
+);
 
 export const irregularInstance = sqliteTable(
 	'irregular_instance',
@@ -164,7 +223,8 @@ export const irregularInstance = sqliteTable(
 		status: text('status', {
 			enum: ['projected', 'due', 'settled', 'skipped', 'rescheduled']
 		}).notNull(),
-		settledOn: text('settled_on')
+		settledOn: text('settled_on'),
+		userId: integer('user_id').notNull().default(1)
 	},
 	(t) => [uniqueIndex('idx_ii_unique').on(t.irregularId, t.dueOn)]
 );
@@ -176,31 +236,37 @@ export const allocation = sqliteTable(
 		periodId: integer('period_id').notNull(),
 		accountId: integer('account_id').notNull(),
 		amountMinor: integer('amount_minor').notNull(),
-		executedAt: text('executed_at')
+		executedAt: text('executed_at'),
+		userId: integer('user_id').notNull().default(1)
 	},
 	(t) => [uniqueIndex('idx_allocation_unique').on(t.periodId, t.accountId)]
 );
 
-export const trip = sqliteTable('trip', {
-	id: integer('id').primaryKey({ autoIncrement: true }),
-	label: text('label').notNull(),
-	startsOn: text('starts_on').notNull(),
-	endsOn: text('ends_on').notNull(),
-	tripTz: text('trip_tz').notNull(),
-	currencyCode: text('currency_code').notNull(),
-	currencySymbol: text('currency_symbol').notNull(),
-	// Never inherits settings.minorUnits — see migration 0004.
-	localMinorUnits: integer('local_minor_units').notNull(),
-	fxRateToHome: real('fx_rate_to_home').notNull(),
-	envelopeMinor: integer('envelope_minor').notNull(),
-	irregularInstanceId: integer('irregular_instance_id'),
-	bufferDrawMinor: integer('buffer_draw_minor').notNull().default(0),
-	status: text('status', { enum: ['planned', 'active', 'settled', 'cancelled'] }).notNull(),
-	loggedTotalMinor: integer('logged_total_minor'),
-	actualMinor: integer('actual_minor'),
-	settledOn: text('settled_on'),
-	createdAt: text('created_at').notNull()
-});
+export const trip = sqliteTable(
+	'trip',
+	{
+		id: integer('id').primaryKey({ autoIncrement: true }),
+		label: text('label').notNull(),
+		startsOn: text('starts_on').notNull(),
+		endsOn: text('ends_on').notNull(),
+		tripTz: text('trip_tz').notNull(),
+		currencyCode: text('currency_code').notNull(),
+		currencySymbol: text('currency_symbol').notNull(),
+		// Never inherits settings.minorUnits — see migration 0004.
+		localMinorUnits: integer('local_minor_units').notNull(),
+		fxRateToHome: real('fx_rate_to_home').notNull(),
+		envelopeMinor: integer('envelope_minor').notNull(),
+		irregularInstanceId: integer('irregular_instance_id'),
+		bufferDrawMinor: integer('buffer_draw_minor').notNull().default(0),
+		status: text('status', { enum: ['planned', 'active', 'settled', 'cancelled'] }).notNull(),
+		loggedTotalMinor: integer('logged_total_minor'),
+		actualMinor: integer('actual_minor'),
+		settledOn: text('settled_on'),
+		createdAt: text('created_at').notNull(),
+		userId: integer('user_id').notNull().default(1)
+	},
+	(t) => [uniqueIndex('idx_trip_active').on(t.userId, t.status)]
+);
 
 export const debt = sqliteTable('debt', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
@@ -209,14 +275,16 @@ export const debt = sqliteTable('debt', {
 	aprBp: integer('apr_bp').notNull(),
 	minPaymentMinor: integer('min_payment_minor').notNull(),
 	openedOn: text('opened_on'),
-	closedOn: text('closed_on')
+	closedOn: text('closed_on'),
+	userId: integer('user_id').notNull().default(1)
 });
 
 export const debtPayment = sqliteTable('debt_payment', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
 	debtId: integer('debt_id').notNull(),
 	paidOn: text('paid_on').notNull(),
-	amountMinor: integer('amount_minor').notNull()
+	amountMinor: integer('amount_minor').notNull(),
+	userId: integer('user_id').notNull().default(1)
 });
 
 export const rule = sqliteTable('rule', {
@@ -229,7 +297,8 @@ export const rule = sqliteTable('rule', {
 	firedCount: integer('fired_count').notNull().default(0),
 	lastFired: text('last_fired'),
 	active: integer('active').notNull().default(1),
-	sortOrder: integer('sort_order').notNull().default(0)
+	sortOrder: integer('sort_order').notNull().default(0),
+	userId: integer('user_id').notNull().default(1)
 });
 
 export const waitItem = sqliteTable('wait_item', {
@@ -239,25 +308,39 @@ export const waitItem = sqliteTable('wait_item', {
 	addedAt: text('added_at').notNull(),
 	ripeAt: text('ripe_at').notNull(),
 	outcome: text('outcome', { enum: ['bought', 'dropped', 'expired'] }),
-	resolvedAt: text('resolved_at')
+	resolvedAt: text('resolved_at'),
+	userId: integer('user_id').notNull().default(1)
 });
 
-export const phaseChange = sqliteTable('phase_change', {
-	id: integer('id').primaryKey({ autoIncrement: true }),
-	fromPhase: integer('from_phase').notNull(),
-	toPhase: integer('to_phase').notNull(),
-	proposedOn: text('proposed_on').notNull(),
-	rationale: text('rationale').notNull(),
-	acceptedAt: text('accepted_at'),
-	declinedAt: text('declined_at')
-});
+export const phaseChange = sqliteTable(
+	'phase_change',
+	{
+		id: integer('id').primaryKey({ autoIncrement: true }),
+		fromPhase: integer('from_phase').notNull(),
+		toPhase: integer('to_phase').notNull(),
+		proposedOn: text('proposed_on').notNull(),
+		rationale: text('rationale').notNull(),
+		acceptedAt: text('accepted_at'),
+		declinedAt: text('declined_at'),
+		userId: integer('user_id').notNull().default(1)
+	},
+	(t) => [uniqueIndex('idx_phase_change_unique').on(t.userId, t.fromPhase, t.toPhase, t.proposedOn)]
+);
 
-export const logDay = sqliteTable('log_day', {
-	loggedOn: text('logged_on').primaryKey(),
-	entryCount: integer('entry_count').notNull(),
-	isCatchup: integer('is_catchup').notNull(),
-	closedAt: text('closed_at').notNull()
-});
+export const logDay = sqliteTable(
+	'log_day',
+	{
+		loggedOn: text('logged_on').notNull(),
+		entryCount: integer('entry_count').notNull(),
+		isCatchup: integer('is_catchup').notNull(),
+		closedAt: text('closed_at').notNull(),
+		userId: integer('user_id').notNull().default(1)
+	},
+	(t) => [
+		primaryKey({ columns: [t.userId, t.loggedOn] }),
+		index('idx_log_day_user').on(t.userId, t.loggedOn)
+	]
+);
 
 export const review = sqliteTable(
 	'review',
@@ -285,9 +368,13 @@ export const review = sqliteTable(
 		summaryLine: text('summary_line'),
 		sharedAt: text('shared_at'),
 		notes: text('notes'),
-		createdAt: text('created_at').notNull()
+		createdAt: text('created_at').notNull(),
+		userId: integer('user_id').notNull().default(1)
 	},
-	(t) => [uniqueIndex('idx_review_label').on(t.kind, t.periodLabel)]
+	(t) => [
+		uniqueIndex('idx_review_label').on(t.userId, t.kind, t.periodLabel),
+		index('idx_review_window').on(t.userId, t.kind, t.endsOn)
+	]
 );
 
 export const reviewStep = sqliteTable(
@@ -297,18 +384,25 @@ export const reviewStep = sqliteTable(
 		reviewId: integer('review_id').notNull(),
 		stepKey: text('step_key').notNull(),
 		doneAt: text('done_at'),
-		payload: text('payload')
+		payload: text('payload'),
+		userId: integer('user_id').notNull().default(1)
 	},
 	(t) => [uniqueIndex('idx_review_step').on(t.reviewId, t.stepKey)]
 );
 
-export const jobRun = sqliteTable('job_run', {
-	jobKey: text('job_key').notNull(),
-	ranFor: text('ran_for').notNull(),
-	ranAt: text('ran_at').notNull(),
-	detail: text('detail')
-});
+export const jobRun = sqliteTable(
+	'job_run',
+	{
+		jobKey: text('job_key').notNull(),
+		ranFor: text('ran_for').notNull(),
+		ranAt: text('ran_at').notNull(),
+		detail: text('detail'),
+		userId: integer('user_id').notNull().default(1)
+	},
+	(t) => [primaryKey({ columns: [t.userId, t.jobKey, t.ranFor] })]
+);
 
+export type AppUser = typeof appUser.$inferSelect;
 export type Settings = typeof settings.$inferSelect;
 export type Period = typeof period.$inferSelect;
 export type Txn = typeof txn.$inferSelect;
