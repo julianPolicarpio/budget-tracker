@@ -34,24 +34,24 @@ function isDate(value: string): boolean {
 	return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
 }
 
-export const load: PageServerLoad = () => {
-	const settings = loadSettings();
+export const load: PageServerLoad = ({ locals }) => {
+	const settings = loadSettings(locals.userId);
 	if (!settings) return { ready: false as const };
 
 	const today = localToday(settings.timezone);
-	const period = openPeriodOn(today);
-	const byKind = commitmentsByKind();
+	const period = openPeriodOn(locals.userId, today);
+	const byKind = commitmentsByKind(locals.userId);
 
 	return {
 		ready: true as const,
 		today,
-		rows: cullList(today),
+		rows: cullList(locals.userId, today),
 		essential: byKind.essential,
-		cancelled: listSubscriptions(true).filter((r) => r.cancelledAt !== null),
-		annualisedTotalMinor: annualisedTotalMinor(),
+		cancelled: listSubscriptions(locals.userId, true).filter((r) => r.cancelledAt !== null),
+		annualisedTotalMinor: annualisedTotalMinor(locals.userId),
 		// What the split has to reserve every period to keep these paid. The
 		// number that tells you whether the commitments actually fit.
-		perPeriodMinor: period ? commitmentsPerPeriod(period.days, today) : null,
+		perPeriodMinor: period ? commitmentsPerPeriod(locals.userId, period.days, today) : null,
 		periodDays: period?.days ?? null,
 		currency: {
 			code: settings.currencyCode,
@@ -62,8 +62,8 @@ export const load: PageServerLoad = () => {
 };
 
 export const actions: Actions = {
-	add: async ({ request }) => {
-		const settings = loadSettings();
+	add: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
@@ -109,7 +109,7 @@ export const actions: Actions = {
 		const rawCategory = String(form.get('category') ?? '');
 		const vendor = String(form.get('vendor') ?? '').trim();
 
-		createSubscription({
+		createSubscription(locals.userId, {
 			label,
 			vendor: vendor || null,
 			amountMinor,
@@ -134,8 +134,8 @@ export const actions: Actions = {
 	 * next charge is one cadence out, and an essential cost gets no cancel-by
 	 * deadline at all, because there is no decision pending on your own wifi.
 	 */
-	quickAdd: async ({ request }) => {
-		const settings = loadSettings();
+	quickAdd: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
@@ -170,7 +170,7 @@ export const actions: Actions = {
 		// cadence-scaled lead would be far too short to act on. Give it a month.
 		const leadDays = rawFreeUntil ? 30 : DEFAULT_LEAD_DAYS[cadence];
 
-		createSubscription({
+		createSubscription(locals.userId, {
 			label,
 			amountMinor,
 			cadence,
@@ -192,13 +192,13 @@ export const actions: Actions = {
 	 * the fields come off a form either way, and a record already in the table
 	 * has no more claim to being well-formed than a new one.
 	 */
-	edit: async ({ request }) => {
-		const settings = loadSettings();
+	edit: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
 		const id = Number(form.get('id'));
-		if (!Number.isInteger(id) || !getSubscription(id)) {
+		if (!Number.isInteger(id) || !getSubscription(locals.userId, id)) {
 			return fail(400, { error: 'Unknown subscription.' });
 		}
 
@@ -246,7 +246,7 @@ export const actions: Actions = {
 		const rawCategory = String(form.get('category') ?? '');
 		const vendor = String(form.get('vendor') ?? '').trim();
 
-		updateSubscription(id, {
+		updateSubscription(locals.userId, id, {
 			label,
 			vendor: vendor || null,
 			amountMinor,
@@ -264,36 +264,36 @@ export const actions: Actions = {
 	},
 
 	/** Undo an "Ended it". One click made it; one click should unmake it. */
-	restore: async ({ request }) => {
+	restore: async ({ request, locals }) => {
 		const id = Number((await request.formData()).get('id'));
 		if (!Number.isInteger(id)) return fail(400, { error: 'Unknown subscription.' });
-		restoreSubscription(id);
+		restoreSubscription(locals.userId, id);
 		return { restored: true };
 	},
 
 	/** The two halves of Spec §374's rule: decide right then, never "later". */
-	keep: async ({ request }) => {
-		const settings = loadSettings();
+	keep: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 		const id = Number((await request.formData()).get('id'));
 		if (!Number.isInteger(id)) return fail(400, { error: 'Unknown subscription.' });
-		keepSubscription(id, localToday(settings.timezone));
+		keepSubscription(locals.userId, id, localToday(settings.timezone));
 		return { kept: true };
 	},
 
-	cancel: async ({ request }) => {
+	cancel: async ({ request, locals }) => {
 		const id = Number((await request.formData()).get('id'));
 		if (!Number.isInteger(id)) return fail(400, { error: 'Unknown subscription.' });
-		cancelSubscription(id);
+		cancelSubscription(locals.userId, id);
 		return { cancelled: true };
 	},
 
-	used: async ({ request }) => {
-		const settings = loadSettings();
+	used: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 		const id = Number((await request.formData()).get('id'));
 		if (!Number.isInteger(id)) return fail(400, { error: 'Unknown subscription.' });
-		markUsed(id, localToday(settings.timezone));
+		markUsed(locals.userId, id, localToday(settings.timezone));
 		return { used: true };
 	}
 };

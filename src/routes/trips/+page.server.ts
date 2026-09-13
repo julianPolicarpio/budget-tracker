@@ -22,13 +22,13 @@ import {
 } from '$lib/server/trips';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = () => {
-	const settings = loadSettings();
+export const load: PageServerLoad = ({ locals }) => {
+	const settings = loadSettings(locals.userId);
 	if (!settings) return { ready: false as const };
 
 	const today = localToday(settings.timezone);
-	const trips = listTrips();
-	const active = activeTrip();
+	const trips = listTrips(locals.userId);
+	const active = activeTrip(locals.userId);
 
 	return {
 		ready: true as const,
@@ -37,14 +37,14 @@ export const load: PageServerLoad = () => {
 		active: active
 			? {
 					trip: active,
-					drawnMinor: tripSpentMinor(active.id),
-					drawnLocalMinor: tripSpentLocalMinor(active.id),
-					burndown: burndown(active, today)
+					drawnMinor: tripSpentMinor(locals.userId, active.id),
+					drawnLocalMinor: tripSpentLocalMinor(locals.userId, active.id),
+					burndown: burndown(locals.userId, active, today)
 				}
 			: null,
 		planned: trips
 			.filter((t) => t.status === 'planned')
-			.map((t) => ({ trip: t, check: fundingCheck(t, today) })),
+			.map((t) => ({ trip: t, check: fundingCheck(locals.userId, t, today) })),
 		past: trips.filter((t) => t.status === 'settled' || t.status === 'cancelled'),
 		currency: {
 			code: settings.currencyCode,
@@ -56,8 +56,8 @@ export const load: PageServerLoad = () => {
 
 export const actions: Actions = {
 	/** The cue is the booking moment. An hour later the gap has already opened. */
-	declare: async ({ request }) => {
-		const settings = loadSettings();
+	declare: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
@@ -97,7 +97,7 @@ export const actions: Actions = {
 		}
 
 		try {
-			declareTrip({
+			declareTrip(locals.userId, {
 				label,
 				startsOn,
 				endsOn,
@@ -116,29 +116,29 @@ export const actions: Actions = {
 		redirect(303, '/trips');
 	},
 
-	activate: async ({ request }) => {
+	activate: async ({ request, locals }) => {
 		const form = await request.formData();
 		const id = Number(form.get('id'));
 		if (!Number.isInteger(id)) return fail(400, { error: 'Unknown trip.' });
 		try {
-			activateTrip(id);
+			activateTrip(locals.userId, id);
 		} catch (err) {
 			return fail(409, { error: err instanceof Error ? err.message : 'Could not activate.' });
 		}
 		redirect(303, '/trips');
 	},
 
-	cancel: async ({ request }) => {
+	cancel: async ({ request, locals }) => {
 		const form = await request.formData();
 		const id = Number(form.get('id'));
 		if (!Number.isInteger(id)) return fail(400, { error: 'Unknown trip.' });
-		cancelTrip(id);
+		cancelTrip(locals.userId, id);
 		redirect(303, '/trips');
 	},
 
 	/** Option three of the funding check. Rule 3 applies without exception. */
-	coverShortfall: async ({ request }) => {
-		const settings = loadSettings();
+	coverShortfall: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
@@ -151,6 +151,7 @@ export const actions: Actions = {
 
 		try {
 			coverShortfall(
+				locals.userId,
 				id,
 				amountMinor,
 				String(form.get('iouReason') ?? ''),
@@ -165,8 +166,8 @@ export const actions: Actions = {
 	},
 
 	/** Editing the rate recomputes home figures; local amounts never move. */
-	setRate: async ({ request }) => {
-		const settings = loadSettings();
+	setRate: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
@@ -175,13 +176,13 @@ export const actions: Actions = {
 		if (!Number.isInteger(id)) return fail(400, { error: 'Unknown trip.' });
 		if (!(rate > 0)) return fail(400, { error: 'The rate must be above zero.' });
 
-		setRate(id, rate, settings.minorUnits);
+		setRate(locals.userId, id, rate, settings.minorUnits);
 		redirect(303, '/trips');
 	},
 
 	/** Two numbers, and their difference is the point. */
-	settle: async ({ request }) => {
-		const settings = loadSettings();
+	settle: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
@@ -191,9 +192,14 @@ export const actions: Actions = {
 		if (actualMinor === null || actualMinor < 0) {
 			return fail(400, { error: 'Enter what the bank actually charged.' });
 		}
-		if (!tripById(id)) return fail(400, { error: 'Unknown trip.' });
+		if (!tripById(locals.userId, id)) return fail(400, { error: 'Unknown trip.' });
 
-		settleTrip(id, actualMinor, String(form.get('settledOn') || localToday(settings.timezone)));
+		settleTrip(
+			locals.userId,
+			id,
+			actualMinor,
+			String(form.get('settledOn') || localToday(settings.timezone))
+		);
 		redirect(303, '/trips');
 	}
 };

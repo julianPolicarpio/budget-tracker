@@ -20,7 +20,7 @@
  */
 
 import { and, desc, eq, gt, isNull, lt, lte, gte, or, sql } from 'drizzle-orm';
-import { db, schema } from './db';
+import { forUser, schema } from './db';
 import { dailyAllowance } from '$lib/allowance';
 import { addDays } from './clock';
 import type { Period, Settings } from './db/schema';
@@ -34,28 +34,30 @@ export interface RolloverResult {
 const MAX_PERIODS_PER_RUN = 400;
 
 export function runRollover(
+	userId: number,
 	today: string,
 	settings: Settings,
 	now: Date = new Date()
 ): RolloverResult {
+	const { db, owns } = forUser(userId);
 	const result: RolloverResult = { closed: [], opened: [] };
 
 	const due = db
 		.select()
 		.from(schema.period)
-		.where(and(isNull(schema.period.closedAt), lt(schema.period.endsOn, today)))
+		.where(and(owns(schema.period), isNull(schema.period.closedAt), lt(schema.period.endsOn, today)))
 		.orderBy(schema.period.startsOn)
 		.all();
 
-	for (const p of due) result.closed.push(closePeriod(p, now));
+	for (const p of due) result.closed.push(closePeriod(userId, p, now));
 
 	// Nothing to roll into if a period already covers today, or if none exists
 	// at all — a first period is created by hand (Spec §13 Phase 1).
-	let last = latestPeriod();
+	let last = latestPeriod(userId);
 	if (!last) return result;
 
 	for (let i = 0; i < MAX_PERIODS_PER_RUN && last.endsOn < today; i++) {
-		last = openNext(last, settings, now);
+		last = openNext(userId, last, settings, now);
 		result.opened.push({ id: last.id, startsOn: last.startsOn, endsOn: last.endsOn });
 
 		// Catching up after the server was off for a fortnight materialises
@@ -64,7 +66,7 @@ export function runRollover(
 		// and the next run has nothing left to do. Leaving them open makes
 		// rollover non-idempotent, which is the one property Spec §3 requires of
 		// it — a home server reboots and a tick gets missed.
-		if (last.endsOn < today) result.closed.push(closePeriod(last, now));
+		if (last.endsOn < today) result.closed.push(closePeriod(userId, last, now));
 	}
 
 	return result;
@@ -78,7 +80,12 @@ export function runRollover(
  * *records* it; the actual transfer is a line on the Money Map's checklist in
  * Phase 3, because this app never claims to have moved money it cannot see.
  */
-export function closePeriod(p: Period, now: Date = new Date()): { id: number; sweptMinor: number } {
+export function closePeriod(
+	userId: number,
+	p: Period,
+	now: Date = new Date()
+): { id: number; sweptMinor: number } {
+	const { db, owns } = forUser(userId);
 	// A sweep is a claim that real money was left over. If nothing was logged
 	// anywhere in the period's range, "spent" reads as zero for lack of a
 	// record, not because it was a frugal week — sweeping the full allocation
@@ -91,6 +98,7 @@ export function closePeriod(p: Period, now: Date = new Date()): { id: number; sw
 			.from(schema.logDay)
 			.where(
 				and(
+					owns(schema.logDay),
 					gte(schema.logDay.loggedOn, p.startsOn),
 					lte(schema.logDay.loggedOn, p.endsOn),
 					or(gt(schema.logDay.entryCount, 0), eq(schema.logDay.isCatchup, 1))
@@ -101,7 +109,7 @@ export function closePeriod(p: Period, now: Date = new Date()): { id: number; sw
 	if (logged === 0) {
 		db.update(schema.period)
 			.set({ closedAt: now.toISOString(), sweptMinor: 0, isGap: 1 })
-			.where(eq(schema.period.id, p.id))
+			.where(and(owns(schema.period), eq(schema.period.id, p.id)))
 			.run();
 
 		return { id: p.id, sweptMinor: 0 };
@@ -111,20 +119,21 @@ export function closePeriod(p: Period, now: Date = new Date()): { id: number; sw
 		db
 			.select({ n: sql<number>`coalesce(sum(${schema.txn.amountMinor}), 0)` })
 			.from(schema.txn)
-			.where(eq(schema.txn.periodId, p.id))
+			.where(and(owns(schema.txn), eq(schema.txn.periodId, p.id)))
 			.get()?.n ?? 0;
 
 	const sweptMinor = Math.max(0, p.spendAllocMinor - spent);
 
 	db.update(schema.period)
 		.set({ closedAt: now.toISOString(), sweptMinor })
-		.where(eq(schema.period.id, p.id))
+		.where(and(owns(schema.period), eq(schema.period.id, p.id)))
 		.run();
 
 	return { id: p.id, sweptMinor };
 }
 
-function openNext(prev: Period, settings: Settings, now: Date): Period {
+function openNext(userId: number, prev: Period, settings: Settings, now: Date): Period {
+	const { db, owns } = forUser(userId);
 	const startsOn = addDays(prev.endsOn, 1);
 	const endsOn = addDays(startsOn, prev.days - 1);
 
@@ -145,16 +154,30 @@ function openNext(prev: Period, settings: Settings, now: Date): Period {
 			dailyAllowanceMinor: allowance,
 			haircutPctApplied: settings.haircutPct,
 			phaseAtOpen: settings.phase,
-			createdAt: now.toISOString()
+			createdAt: now.toISOString(),
+			userId
 		})
 		.returning({ id: schema.period.id })
 		.get().id;
 
-	return db.select().from(schema.period).where(eq(schema.period.id, id)).get()!;
+	return db
+		.select()
+		.from(schema.period)
+		.where(and(owns(schema.period), eq(schema.period.id, id)))
+		.get()!;
 }
 
-function latestPeriod(): Period | null {
-	return db.select().from(schema.period).orderBy(desc(schema.period.endsOn)).limit(1).get() ?? null;
+function latestPeriod(userId: number): Period | null {
+	const { db, owns } = forUser(userId);
+	return (
+		db
+			.select()
+			.from(schema.period)
+			.where(owns(schema.period))
+			.orderBy(desc(schema.period.endsOn))
+			.limit(1)
+			.get() ?? null
+	);
 }
 
 /**
@@ -165,17 +188,19 @@ function latestPeriod(): Period | null {
  * never mutates the old row.
  */
 export function supersedePeriod(
+	userId: number,
 	current: Period,
 	spendAllocMinor: number,
 	settings: Settings,
 	now: Date = new Date()
 ): Period {
+	const { db, owns } = forUser(userId);
 	const allowance = dailyAllowance({ spendAllocMinor, days: current.days }, settings.haircutPct);
 
 	return db.transaction((tx) => {
 		tx.update(schema.period)
 			.set({ closedAt: now.toISOString() })
-			.where(eq(schema.period.id, current.id))
+			.where(and(owns(schema.period), eq(schema.period.id, current.id)))
 			.run();
 
 		const id = tx
@@ -189,23 +214,30 @@ export function supersedePeriod(
 				haircutPctApplied: settings.haircutPct,
 				phaseAtOpen: settings.phase,
 				supersedesId: current.id,
-				createdAt: now.toISOString()
+				createdAt: now.toISOString(),
+				userId
 			})
 			.returning({ id: schema.period.id })
 			.get().id;
 
-		return tx.select().from(schema.period).where(eq(schema.period.id, id)).get()!;
+		return tx
+			.select()
+			.from(schema.period)
+			.where(and(owns(schema.period), eq(schema.period.id, id)))
+			.get()!;
 	});
 }
 
 /** The open, non-superseded period covering `date`. */
-export function openPeriodOn(date: string): Period | null {
+export function openPeriodOn(userId: number, date: string): Period | null {
+	const { db, owns } = forUser(userId);
 	return (
 		db
 			.select()
 			.from(schema.period)
 			.where(
 				and(
+					owns(schema.period),
 					isNull(schema.period.closedAt),
 					lte(schema.period.startsOn, date),
 					gte(schema.period.endsOn, date)

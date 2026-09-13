@@ -16,21 +16,21 @@ import {
 } from '$lib/server/rules';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = () => {
-	const settings = loadSettings();
+export const load: PageServerLoad = ({ locals }) => {
+	const settings = loadSettings(locals.userId);
 	if (!settings) return { ready: false as const };
 
-	const rules = listRules();
+	const rules = listRules(locals.userId);
 	return {
 		ready: true as const,
 		categories: RULE_CATEGORIES.map((c) => ({
 			...c,
 			rules: rules.filter((r) => r.category === c.key)
 		})),
-		waiting: waitingItems(),
-		ripe: ripeItems(),
-		resolved: resolvedItems(),
-		dropRateBp: dropRateBp(),
+		waiting: waitingItems(locals.userId),
+		ripe: ripeItems(locals.userId),
+		resolved: resolvedItems(locals.userId),
+		dropRateBp: dropRateBp(locals.userId),
 		currency: {
 			code: settings.currencyCode,
 			symbol: settings.currencySymbol,
@@ -41,23 +41,23 @@ export const load: PageServerLoad = () => {
 
 export const actions: Actions = {
 	/** The count feeds the quarterly audit: which rules fired, which never did. */
-	fired: async ({ request }) => {
+	fired: async ({ request, locals }) => {
 		const form = await request.formData();
 		const id = Number(form.get('id'));
 		if (!Number.isInteger(id)) return fail(400, { error: 'Unknown rule.' });
-		fireRule(id);
+		fireRule(locals.userId, id);
 		redirect(303, '/rules');
 	},
 
-	toggle: async ({ request }) => {
+	toggle: async ({ request, locals }) => {
 		const form = await request.formData();
 		const id = Number(form.get('id'));
 		if (!Number.isInteger(id)) return fail(400, { error: 'Unknown rule.' });
-		setRuleActive(id, form.get('active') === '1');
+		setRuleActive(locals.userId, id, form.get('active') === '1');
 		redirect(303, '/rules');
 	},
 
-	upsert: async ({ request }) => {
+	upsert: async ({ request, locals }) => {
 		const form = await request.formData();
 		const cue = String(form.get('cue') ?? '').trim();
 		const action = String(form.get('action') ?? '').trim();
@@ -72,7 +72,7 @@ export const actions: Actions = {
 			return fail(400, { error: 'Pick a category.' });
 		}
 
-		upsertRule({
+		upsertRule(locals.userId, {
 			id: Number(form.get('id')) || undefined,
 			cue,
 			action,
@@ -81,8 +81,8 @@ export const actions: Actions = {
 		redirect(303, '/rules');
 	},
 
-	addWait: async ({ request }) => {
-		const settings = loadSettings();
+	addWait: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
@@ -90,11 +90,11 @@ export const actions: Actions = {
 		if (!label) return fail(400, { error: 'Name the thing you want.' });
 
 		const raw = String(form.get('amount') ?? '').trim();
-		addWaitItem(label, raw ? parseMoney(raw, settings.minorUnits) : null);
+		addWaitItem(locals.userId, label, raw ? parseMoney(raw, settings.minorUnits) : null);
 		redirect(303, '/rules');
 	},
 
-	resolve: async ({ request }) => {
+	resolve: async ({ request, locals }) => {
 		const form = await request.formData();
 		const id = Number(form.get('id'));
 		const outcome = String(form.get('outcome') ?? '');
@@ -102,7 +102,7 @@ export const actions: Actions = {
 		if (outcome !== 'bought' && outcome !== 'dropped') {
 			return fail(400, { error: 'Bought or dropped.' });
 		}
-		resolveWaitItem(id, outcome);
+		resolveWaitItem(locals.userId, id, outcome);
 		redirect(303, '/rules');
 	}
 };

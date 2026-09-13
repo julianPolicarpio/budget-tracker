@@ -11,7 +11,7 @@ import { join, resolve } from 'node:path';
 import { applyMigrations } from '../../../scripts/apply-migrations.js';
 
 type Mod = {
-	db: typeof import('./db').db;
+	unsafeDb: typeof import('./db').unsafeDb;
 	sqlite: typeof import('./db').sqlite;
 	schema: typeof import('./db').schema;
 	irregulars: typeof import('./irregulars');
@@ -37,7 +37,7 @@ beforeAll(async () => {
 	applyMigrations(dbMod.sqlite, resolve('migrations'));
 
 	m = {
-		db: dbMod.db,
+		unsafeDb: dbMod.unsafeDb,
 		sqlite: dbMod.sqlite,
 		schema: dbMod.schema,
 		irregulars: await import('./irregulars'),
@@ -108,7 +108,7 @@ describe('the metric quarantine', () => {
 		ins.run('2026-07-02', 30_000, 'food_out', 0, '2026-07-02T21:00:00Z', null);
 		ins.run('2026-07-03', 10_000, 'food_out', 1, '2026-07-03T21:00:00Z', null);
 
-		const before = m.metrics.weekActuals(range);
+		const before = m.metrics.weekActuals(1, range);
 		expect(before.totalMinor).toBe(40_000);
 		expect(before.unplannedRatioBp).toBe(7500);
 
@@ -117,10 +117,10 @@ describe('the metric quarantine', () => {
 			ins.run('2026-07-04', 160_000, 'stuff', 0, '2026-07-04T21:00:00Z', 1);
 		}
 
-		const after = m.metrics.weekActuals(range);
+		const after = m.metrics.weekActuals(1, range);
 		expect(after.totalMinor).toBe(40_000);
 		expect(after.unplannedRatioBp).toBe(7500);
-		expect(m.metrics.topThree(range).map((t) => t.amountMinor)).toEqual([30_000, 10_000]);
+		expect(m.metrics.topThree(1, range).map((t) => t.amountMinor)).toEqual([30_000, 10_000]);
 	});
 
 	it('still counts trip days for log adherence — the streak keeps the app open', () => {
@@ -131,7 +131,7 @@ describe('the metric quarantine', () => {
 				)
 				.run(d, `${d}T22:00:00Z`);
 		}
-		expect(m.metrics.logAdherenceBp({ from: '2026-07-01', to: '2026-07-07' })).toBe(
+		expect(m.metrics.logAdherenceBp(1, { from: '2026-07-01', to: '2026-07-07' })).toBe(
 			Math.round((4 * 10_000) / 7)
 		);
 	});
@@ -174,10 +174,10 @@ describe('materialisation', () => {
 		addIrregular('Enrolment', 400_000, 'semiannual', '2026-08-21');
 		addIrregular('Insurance', 900_000, 'annual', '2026-11-04');
 
-		const first = m.irregulars.materialise(TODAY);
+		const first = m.irregulars.materialise(1, TODAY);
 		expect(first).toBeGreaterThan(0);
 
-		const second = m.irregulars.materialise(TODAY);
+		const second = m.irregulars.materialise(1, TODAY);
 		expect(second).toBe(0);
 	});
 
@@ -195,7 +195,7 @@ describe('materialisation', () => {
 
 describe('coverage', () => {
 	it('is null rather than infinite when nothing is due', () => {
-		const c = m.irregulars.coverage('2030-01-01');
+		const c = m.irregulars.coverage(1, '2030-01-01');
 		expect(c.ratioBp).toBeNull();
 		expect(c.firstAtRisk).toBeNull();
 	});
@@ -203,8 +203,8 @@ describe('coverage', () => {
 	it('names the instance that bounces first when short', () => {
 		// Both land inside 90 days of 16 Aug: Enrolment on the 21st at ₱5,000
 		// padded, Insurance on 4 Nov at ₱11,250 padded.
-		m.accounts.assertBalance(4, 300_000, TODAY);
-		const c = m.irregulars.coverage(TODAY);
+		m.accounts.assertBalance(1, 4, 300_000, TODAY);
+		const c = m.irregulars.coverage(1, TODAY);
 
 		expect(c.due90Minor).toBe(1_625_000);
 		expect(c.ratioBp).toBe(1846);
@@ -214,18 +214,18 @@ describe('coverage', () => {
 	});
 
 	it('reads above 1.0 once the balance covers the window', () => {
-		m.accounts.assertBalance(4, 1_800_000, TODAY);
-		expect(m.irregulars.coverage(TODAY).ratioBp).toBe(11_077);
-		expect(m.irregulars.coverage(TODAY).firstAtRisk).toBeNull();
+		m.accounts.assertBalance(1, 4, 1_800_000, TODAY);
+		expect(m.irregulars.coverage(1, TODAY).ratioBp).toBe(11_077);
+		expect(m.irregulars.coverage(1, TODAY).firstAtRisk).toBeNull();
 	});
 });
 
 describe('accrual', () => {
 	it('raises when a large cost is added close to its due date', () => {
-		const before = m.irregulars.requiredAccrualPerPeriod(TODAY, 7);
+		const before = m.irregulars.requiredAccrualPerPeriod(1, TODAY, 7);
 		addIrregular('Laptop', 8_000_000, 'one_off', '2026-10-15');
-		m.irregulars.materialise(TODAY);
-		const after = m.irregulars.requiredAccrualPerPeriod(TODAY, 7);
+		m.irregulars.materialise(1, TODAY);
+		const after = m.irregulars.requiredAccrualPerPeriod(1, TODAY, 7);
 		expect(after).toBeGreaterThan(before);
 	});
 });
@@ -240,8 +240,8 @@ describe('settling', () => {
 			)
 			.get() as { id: number };
 
-		const balanceBefore = m.accounts.accountByKind('irregulars')!.balanceMinor;
-		m.irregulars.settleInstance(inst.id, 540_000, '2026-08-21');
+		const balanceBefore = m.accounts.accountByKind(1, 'irregulars')!.balanceMinor;
+		m.irregulars.settleInstance(1, inst.id, 540_000, '2026-08-21');
 
 		const row = m.sqlite
 			.prepare(
@@ -252,11 +252,11 @@ describe('settling', () => {
 		expect(row.status).toBe('settled');
 		expect(row.e).toBe(500_000); // the estimate is not overwritten
 		expect(row.a).toBe(540_000);
-		expect(m.accounts.accountByKind('irregulars')!.balanceMinor).toBe(balanceBefore - 540_000);
+		expect(m.accounts.accountByKind(1, 'irregulars')!.balanceMinor).toBe(balanceBefore - 540_000);
 	});
 
 	it('feeds the calibration chart with the delta', () => {
-		const rows = m.irregulars.estimateAccuracy('2026-01-01');
+		const rows = m.irregulars.estimateAccuracy(1, '2026-01-01');
 		const enrolment = rows.find((r) => r.label === 'Enrolment')!;
 		expect(enrolment.actualMinor - enrolment.expectedMinor).toBe(40_000);
 	});
@@ -269,7 +269,7 @@ describe('settling', () => {
 				 WHERE irregular.label = 'Laptop' LIMIT 1`
 			)
 			.get() as { id: number };
-		m.irregulars.settleInstance(oneOff.id, 7_500_000, '2026-10-15');
+		m.irregulars.settleInstance(1, oneOff.id, 7_500_000, '2026-10-15');
 
 		const laptop = m.sqlite
 			.prepare(`SELECT archived_at AS a FROM irregular WHERE label = 'Laptop'`)
@@ -290,21 +290,21 @@ describe('reconciliation', () => {
 		// materialises, the obligation is invisible and the ledger drifts —
 		// which is the exact failure the forced three-way choice exists for.
 		addIrregular('Org dues', 100_000, 'annual', '2026-08-01');
-		m.irregulars.materialise(TODAY);
-		expect(m.irregulars.overdue(TODAY).map((o) => o.label)).toContain('Org dues');
+		m.irregulars.materialise(1, TODAY);
+		expect(m.irregulars.overdue(1, TODAY).map((o) => o.label)).toContain('Org dues');
 	});
 
 	it('drops out of the queue once resolved either way', () => {
-		const inst = m.irregulars.overdue(TODAY).find((o) => o.label === 'Org dues')!;
-		m.irregulars.skipInstance(inst.id);
-		expect(m.irregulars.overdue(TODAY).map((o) => o.label)).not.toContain('Org dues');
+		const inst = m.irregulars.overdue(1, TODAY).find((o) => o.label === 'Org dues')!;
+		m.irregulars.skipInstance(1, inst.id);
+		expect(m.irregulars.overdue(1, TODAY).map((o) => o.label)).not.toContain('Org dues');
 	});
 });
 
 describe('the IOU rule', () => {
 	it('refuses to move money out of savings without a note', () => {
 		expect(() =>
-			m.accounts.recordTransfer({
+			m.accounts.recordTransfer(1, {
 				fromAccountId: 5, // Buffer
 				toAccountId: 3, // Spend
 				amountMinor: 50_000,
@@ -314,10 +314,10 @@ describe('the IOU rule', () => {
 	});
 
 	it('allows it with a note, and both balances move', () => {
-		m.accounts.assertBalance(5, 1_800_000, TODAY);
-		m.accounts.assertBalance(3, 100_000, TODAY);
+		m.accounts.assertBalance(1, 5, 1_800_000, TODAY);
+		m.accounts.assertBalance(1, 3, 100_000, TODAY);
 
-		m.accounts.recordTransfer({
+		m.accounts.recordTransfer(1, {
 			fromAccountId: 5,
 			toAccountId: 3,
 			amountMinor: 50_000,
@@ -326,13 +326,13 @@ describe('the IOU rule', () => {
 			iouRepayBy: '2026-08-30'
 		});
 
-		expect(m.accounts.accountByKind('buffer')!.balanceMinor).toBe(1_750_000);
-		expect(m.accounts.accountByKind('spend')!.balanceMinor).toBe(150_000);
+		expect(m.accounts.accountByKind(1, 'buffer')!.balanceMinor).toBe(1_750_000);
+		expect(m.accounts.accountByKind(1, 'spend')!.balanceMinor).toBe(150_000);
 	});
 
 	it('does not demand a note for a move into savings', () => {
 		expect(() =>
-			m.accounts.recordTransfer({
+			m.accounts.recordTransfer(1, {
 				fromAccountId: 1, // Inflow
 				toAccountId: 5, // Buffer
 				amountMinor: 20_000,
@@ -342,47 +342,47 @@ describe('the IOU rule', () => {
 	});
 
 	it('lists the open IOUs one by one, and flags an overdue one', () => {
-		const ious = m.accounts.openIous('2026-09-05');
+		const ious = m.accounts.openIous(1, '2026-09-05');
 		expect(ious).toHaveLength(1);
 		expect(ious[0].reason).toBe('Bike repair, back on payday');
 		expect(ious[0].overdue).toBe(true);
 
-		m.accounts.repayIou(ious[0].id);
-		expect(m.accounts.openIous('2026-09-05')).toHaveLength(0);
+		m.accounts.repayIou(1, ious[0].id);
+		expect(m.accounts.openIous(1, '2026-09-05')).toHaveLength(0);
 	});
 });
 
 describe('the phase engine', () => {
 	it('never advances on its own — it only records a proposal', () => {
-		const settings = m.today.loadSettings()!;
+		const settings = m.today.loadSettings(1)!;
 		expect(settings.phase).toBe(1);
 
 		// 6 weeks of a ₱6,000 take-home is ₱36,000.
-		m.accounts.assertBalance(5, 3_700_000, TODAY);
-		const proposal = m.phases.proposePhaseChange(m.today.loadSettings()!, TODAY);
+		m.accounts.assertBalance(1, 5, 3_700_000, TODAY);
+		const proposal = m.phases.proposePhaseChange(1, m.today.loadSettings(1)!, TODAY);
 
 		expect(proposal).not.toBeNull();
 		expect(proposal!.toPhase).toBe(2);
 		expect(proposal!.rationale).toContain('6.0 weeks');
 		// The setting has NOT moved.
-		expect(m.today.loadSettings()!.phase).toBe(1);
+		expect(m.today.loadSettings(1)!.phase).toBe(1);
 	});
 
 	it('advances only when the proposal is accepted', () => {
-		const proposal = m.phases.pendingProposal()!;
-		m.phases.acceptProposal(proposal.id);
-		expect(m.today.loadSettings()!.phase).toBe(2);
+		const proposal = m.phases.pendingProposal(1)!;
+		m.phases.acceptProposal(1, proposal.id);
+		expect(m.today.loadSettings(1)!.phase).toBe(2);
 	});
 
 	it('says which input is missing rather than reporting a false negative', () => {
-		const verdict = m.phases.evaluateExit(m.today.loadSettings()!, TODAY);
+		const verdict = m.phases.evaluateExit(1, m.today.loadSettings(1)!, TODAY);
 		expect(verdict.state).toBe('unevaluable');
 		expect(verdict.detail).toContain('debt table');
 	});
 
 	it('treats a downgrade as an ordinary move', () => {
-		m.phases.setPhase(1, TODAY);
-		expect(m.today.loadSettings()!.phase).toBe(1);
+		m.phases.setPhase(1, 1, TODAY);
+		expect(m.today.loadSettings(1)!.phase).toBe(1);
 		const row = m.sqlite
 			.prepare('SELECT rationale FROM phase_change ORDER BY id DESC LIMIT 1')
 			.get() as { rationale: string };
@@ -392,37 +392,37 @@ describe('the phase engine', () => {
 
 describe('the transfer checklist', () => {
 	it('creates the allocations it can actually know, once', () => {
-		const period = m.db
+		const period = m.unsafeDb
 			.select()
 			.from(m.schema.period)
 			.where(eq(m.schema.period.startsOn, '2026-08-16'))
 			.get()!;
 
-		m.allocations.ensureAllocations(period, TODAY);
-		m.allocations.ensureAllocations(period, TODAY);
+		m.allocations.ensureAllocations(1, period, TODAY);
+		m.allocations.ensureAllocations(1, period, TODAY);
 
-		const items = m.allocations.checklist(period, TODAY);
+		const items = m.allocations.checklist(1, period, TODAY);
 		expect(items.map((i) => i.accountName).sort()).toEqual(['Irregulars', 'Spend']);
 		expect(items.find((i) => i.accountName === 'Spend')!.amountMinor).toBe(420_000);
 	});
 
 	it('moves the asserted balance when a move is ticked off', () => {
-		const period = m.db
+		const period = m.unsafeDb
 			.select()
 			.from(m.schema.period)
 			.where(eq(m.schema.period.startsOn, '2026-08-16'))
 			.get()!;
 
 		const spendItem = m.allocations
-			.checklist(period, TODAY)
+			.checklist(1, period, TODAY)
 			.find((i) => i.accountName === 'Spend')!;
-		const before = m.accounts.accountByKind('spend')!.balanceMinor;
+		const before = m.accounts.accountByKind(1, 'spend')!.balanceMinor;
 
-		m.allocations.executeAllocation(spendItem.id);
-		expect(m.accounts.accountByKind('spend')!.balanceMinor).toBe(before + 420_000);
+		m.allocations.executeAllocation(1, spendItem.id);
+		expect(m.accounts.accountByKind(1, 'spend')!.balanceMinor).toBe(before + 420_000);
 
 		// Ticking twice must not double the balance.
-		m.allocations.executeAllocation(spendItem.id);
-		expect(m.accounts.accountByKind('spend')!.balanceMinor).toBe(before + 420_000);
+		m.allocations.executeAllocation(1, spendItem.id);
+		expect(m.accounts.accountByKind(1, 'spend')!.balanceMinor).toBe(before + 420_000);
 	});
 });

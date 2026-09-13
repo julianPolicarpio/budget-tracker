@@ -17,7 +17,7 @@
  */
 
 import { and, desc, gte, isNull, lte, sql } from 'drizzle-orm';
-import { db, schema } from './db';
+import { forUser, schema } from './db';
 import { CATEGORIES, type CategoryKey } from '$lib/categories';
 import { daysBetweenInclusive } from './clock';
 
@@ -60,16 +60,22 @@ export interface TopTxn {
  *
  * Trip spending is not uncounted — it is measured against its own envelope on
  * the Trips screen, and nowhere else.
+ *
+ * `owns(schema.txn)` lives here for the same reason as the trip quarantine: one
+ * place callers cannot forget, rather than 61 places they must remember.
  */
-function spendTxns(range: Range) {
+function spendTxns(userId: number, range: Range) {
+	const { owns } = forUser(userId);
 	return and(
+		owns(schema.txn),
 		gte(schema.txn.spentOn, range.from),
 		lte(schema.txn.spentOn, range.to),
 		isNull(schema.txn.tripId)
 	);
 }
 
-export function weekActuals(range: Range): WeekActuals {
+export function weekActuals(userId: number, range: Range): WeekActuals {
+	const { db } = forUser(userId);
 	const rows = db
 		.select({
 			category: schema.txn.category,
@@ -77,7 +83,7 @@ export function weekActuals(range: Range): WeekActuals {
 			minor: sql<number>`sum(${schema.txn.amountMinor})`
 		})
 		.from(schema.txn)
-		.where(spendTxns(range))
+		.where(spendTxns(userId, range))
 		.groupBy(schema.txn.category, schema.txn.planned)
 		.all();
 
@@ -109,7 +115,8 @@ export function weekActuals(range: Range): WeekActuals {
  * Review step R3. Not the total — the top three, one question each. Three
  * answers, no analysis paralysis (Method Part III).
  */
-export function topThree(range: Range): TopTxn[] {
+export function topThree(userId: number, range: Range): TopTxn[] {
+	const { db } = forUser(userId);
 	return db
 		.select({
 			id: schema.txn.id,
@@ -119,7 +126,7 @@ export function topThree(range: Range): TopTxn[] {
 			spentOn: schema.txn.spentOn
 		})
 		.from(schema.txn)
-		.where(spendTxns(range))
+		.where(spendTxns(userId, range))
 		.orderBy(desc(schema.txn.amountMinor))
 		.limit(3)
 		.all()
@@ -134,14 +141,21 @@ export function topThree(range: Range): TopTxn[] {
 }
 
 /** Days logged ÷ days in range, in basis points. Trip days count normally. */
-export function logAdherenceBp(range: Range): number {
+export function logAdherenceBp(userId: number, range: Range): number {
+	const { db, owns } = forUser(userId);
 	const days = daysBetweenInclusive(range.from, range.to);
 	if (days <= 0) return 0;
 	const logged =
 		db
 			.select({ n: sql<number>`count(*)` })
 			.from(schema.logDay)
-			.where(and(gte(schema.logDay.loggedOn, range.from), lte(schema.logDay.loggedOn, range.to)))
+			.where(
+				and(
+					owns(schema.logDay),
+					gte(schema.logDay.loggedOn, range.from),
+					lte(schema.logDay.loggedOn, range.to)
+				)
+			)
 			.get()?.n ?? 0;
 	return Math.round((logged * 10_000) / days);
 }

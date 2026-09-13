@@ -29,7 +29,9 @@ async function invoke(action: string, fields: Record<string, string>) {
 	for (const [k, v] of Object.entries(fields)) body.set(k, v);
 	const actions = m.page.actions as Record<string, (e: unknown) => Promise<unknown>>;
 	return actions[action]({
-		request: new Request('http://localhost/', { method: 'POST', body })
+		request: new Request('http://localhost/', { method: 'POST', body }),
+		// Matches hooks.server.ts until A2 adds real sessions (Spec §3.2).
+		locals: { userId: 1 }
 	});
 }
 

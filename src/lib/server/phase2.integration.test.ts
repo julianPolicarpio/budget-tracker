@@ -14,7 +14,7 @@ import { join, resolve } from 'node:path';
 import { applyMigrations } from '../../../scripts/apply-migrations.js';
 
 type Mod = {
-	db: typeof import('./db').db;
+	unsafeDb: typeof import('./db').unsafeDb;
 	sqlite: typeof import('./db').sqlite;
 	schema: typeof import('./db').schema;
 	rollover: typeof import('./rollover');
@@ -42,7 +42,7 @@ beforeAll(async () => {
 	applyMigrations(dbMod.sqlite, resolve('migrations'));
 
 	m = {
-		db: dbMod.db,
+		unsafeDb: dbMod.unsafeDb,
 		sqlite: dbMod.sqlite,
 		schema: dbMod.schema,
 		rollover: await import('./rollover'),
@@ -108,8 +108,8 @@ describe('rollover', () => {
 				.run(d, `${d}T21:30:00Z`);
 		}
 
-		const settings = m.today.loadSettings()!;
-		const result = m.rollover.runRollover('2026-08-09', settings);
+		const settings = m.today.loadSettings(1)!;
+		const result = m.rollover.runRollover(1, '2026-08-09', settings);
 
 		expect(result.closed).toEqual([{ id, sweptMinor: 300_000 }]);
 
@@ -133,13 +133,13 @@ describe('rollover', () => {
 	it('never sweeps a negative surplus when the period was overspent', () => {
 		const id = insertPeriod('2026-06-01', '2026-06-07', 7, 100_000);
 		insertTxn('2026-06-02', 250_000, 'stuff', 0, id);
-		const p = m.db.select().from(m.schema.period).where(eq(m.schema.period.id, id)).get()!;
-		expect(m.rollover.closePeriod(p).sweptMinor).toBe(0);
+		const p = m.unsafeDb.select().from(m.schema.period).where(eq(m.schema.period.id, id)).get()!;
+		expect(m.rollover.closePeriod(1, p).sweptMinor).toBe(0);
 	});
 
 	it('catches up several missed weeks in one run without leaving gaps', () => {
-		const settings = m.today.loadSettings()!;
-		m.rollover.runRollover('2026-09-06', settings);
+		const settings = m.today.loadSettings(1)!;
+		m.rollover.runRollover(1, '2026-09-06', settings);
 
 		const rows = m.sqlite
 			.prepare(
@@ -152,13 +152,13 @@ describe('rollover', () => {
 			const thisStart = new Date(rows[i].starts_on + 'T00:00:00Z').getTime();
 			expect(thisStart - prevEnd).toBe(86_400_000);
 		}
-		expect(m.rollover.openPeriodOn('2026-09-06')).not.toBeNull();
+		expect(m.rollover.openPeriodOn(1, '2026-09-06')).not.toBeNull();
 	});
 
 	it('is idempotent — a second run for the same day changes nothing', () => {
-		const settings = m.today.loadSettings()!;
+		const settings = m.today.loadSettings(1)!;
 		const before = m.sqlite.prepare('SELECT count(*) AS n FROM period').get() as { n: number };
-		const result = m.rollover.runRollover('2026-09-06', settings);
+		const result = m.rollover.runRollover(1, '2026-09-06', settings);
 		const after = m.sqlite.prepare('SELECT count(*) AS n FROM period').get() as { n: number };
 
 		expect(result.closed).toHaveLength(0);
@@ -172,9 +172,9 @@ describe('rollover', () => {
 	describe('gap periods (Spec §4.1)', () => {
 		it('sweeps zero and flags is_gap when no day in range was logged', () => {
 			const id = insertPeriod('2025-01-06', '2025-01-12', 7, 500_000);
-			const p = m.db.select().from(m.schema.period).where(eq(m.schema.period.id, id)).get()!;
+			const p = m.unsafeDb.select().from(m.schema.period).where(eq(m.schema.period.id, id)).get()!;
 
-			const result = m.rollover.closePeriod(p);
+			const result = m.rollover.closePeriod(1, p);
 
 			expect(result.sweptMinor).toBe(0);
 			const closed = m.sqlite.prepare('SELECT * FROM period WHERE id = ?').get(id) as any;
@@ -190,9 +190,9 @@ describe('rollover', () => {
 					`INSERT INTO log_day (logged_on, entry_count, is_catchup, closed_at) VALUES (?,1,0,?)`
 				)
 				.run('2025-02-04', '2025-02-04T21:00:00Z');
-			const p = m.db.select().from(m.schema.period).where(eq(m.schema.period.id, id)).get()!;
+			const p = m.unsafeDb.select().from(m.schema.period).where(eq(m.schema.period.id, id)).get()!;
 
-			const result = m.rollover.closePeriod(p);
+			const result = m.rollover.closePeriod(1, p);
 
 			expect(result.sweptMinor).toBe(400_000);
 			const closed = m.sqlite.prepare('SELECT * FROM period WHERE id = ?').get(id) as any;
@@ -206,9 +206,9 @@ describe('rollover', () => {
 					`INSERT INTO log_day (logged_on, entry_count, is_catchup, closed_at) VALUES (?,0,1,?)`
 				)
 				.run('2025-03-04', '2025-03-04T21:00:00Z');
-			const p = m.db.select().from(m.schema.period).where(eq(m.schema.period.id, id)).get()!;
+			const p = m.unsafeDb.select().from(m.schema.period).where(eq(m.schema.period.id, id)).get()!;
 
-			const result = m.rollover.closePeriod(p);
+			const result = m.rollover.closePeriod(1, p);
 
 			// Nothing was spent, so the whole allocation still sweeps — but as an
 			// affirmed zero-spend week, not as missing data.
@@ -221,11 +221,11 @@ describe('rollover', () => {
 
 describe('supersession', () => {
 	it('leaves the superseded row monetarily byte-identical', () => {
-		const settings = m.today.loadSettings()!;
-		const current = m.rollover.openPeriodOn('2026-09-06')!;
+		const settings = m.today.loadSettings(1)!;
+		const current = m.rollover.openPeriodOn(1, '2026-09-06')!;
 		const before = m.sqlite.prepare('SELECT * FROM period WHERE id = ?').get(current.id) as any;
 
-		const next = m.rollover.supersedePeriod(current, 390_000, settings);
+		const next = m.rollover.supersedePeriod(1, current, 390_000, settings);
 		const after = m.sqlite.prepare('SELECT * FROM period WHERE id = ?').get(current.id) as any;
 
 		expect(after.spend_alloc_minor).toBe(before.spend_alloc_minor);
@@ -268,32 +268,32 @@ describe('metrics', () => {
 	});
 
 	it('totals only what falls inside the window', () => {
-		const a = m.metrics.weekActuals(range);
+		const a = m.metrics.weekActuals(1, range);
 		expect(a.totalMinor).toBe(100_000);
 		expect(a.unplannedMinor).toBe(90_000);
 		expect(a.unplannedRatioBp).toBe(9000);
 	});
 
 	it('sorts categories by magnitude, descending', () => {
-		const a = m.metrics.weekActuals(range);
+		const a = m.metrics.weekActuals(1, range);
 		const nonZero = a.byCategory.filter((c) => c.minor > 0);
 		expect(nonZero.map((c) => c.key)).toEqual(['stuff', 'food_out']);
 	});
 
 	it('returns null rather than zero when nothing was spent', () => {
 		expect(
-			m.metrics.weekActuals({ from: '2020-01-01', to: '2020-01-07' }).unplannedRatioBp
+			m.metrics.weekActuals(1, { from: '2020-01-01', to: '2020-01-07' }).unplannedRatioBp
 		).toBeNull();
 	});
 
 	it('ranks the top three by amount', () => {
-		const top = m.metrics.topThree(range);
+		const top = m.metrics.topThree(1, range);
 		expect(top.map((t) => t.amountMinor)).toEqual([60_000, 30_000, 10_000]);
 		expect(top[0].label).toBe('Stuff');
 	});
 
 	it('computes adherence as logged days over elapsed days', () => {
-		expect(m.metrics.logAdherenceBp(range)).toBe(Math.round((5 * 10_000) / 7));
+		expect(m.metrics.logAdherenceBp(1, range)).toBe(Math.round((5 * 10_000) / 7));
 	});
 
 	it('leaves buffer weeks null until take-home is asserted', () => {
@@ -305,32 +305,32 @@ describe('metrics', () => {
 
 describe('the weekly artefact', () => {
 	it('creates once, resumes, and never duplicates a label', () => {
-		const a = m.review.ensureWeeklyReview(WEEK);
-		const b = m.review.ensureWeeklyReview(WEEK);
+		const a = m.review.ensureWeeklyReview(1, WEEK);
+		const b = m.review.ensureWeeklyReview(1, WEEK);
 		expect(b.id).toBe(a.id);
 		expect(a.completedAt).toBeNull();
 	});
 
 	it('persists partial completion so the wizard is resumable', () => {
-		const r = m.review.ensureWeeklyReview(WEEK);
-		m.review.saveStep(r.id, 'balances', { spendBalanceMinor: 1 });
-		m.review.saveStep(r.id, 'actuals', { seen: true });
-		expect(Object.keys(m.review.stepPayloads(r.id)).sort()).toEqual(['actuals', 'balances']);
+		const r = m.review.ensureWeeklyReview(1, WEEK);
+		m.review.saveStep(1, r.id, 'balances', { spendBalanceMinor: 1 });
+		m.review.saveStep(1, r.id, 'actuals', { seen: true });
+		expect(Object.keys(m.review.stepPayloads(1, r.id)).sort()).toEqual(['actuals', 'balances']);
 	});
 
 	it('snapshots the metrics and writes the one-liner', () => {
-		const settings = m.today.loadSettings()!;
-		let r = m.review.ensureWeeklyReview(WEEK);
+		const settings = m.today.loadSettings(1)!;
+		let r = m.review.ensureWeeklyReview(1, WEEK);
 
-		m.review.saveBalances(r.id, {
+		m.review.saveBalances(1, r.id, {
 			spendBalanceMinor: 120_000,
 			irregularsMinor: 800_000,
 			bufferMinor: 1_800_000,
 			debtTotalMinor: 0
 		});
-		r = m.review.reviewByLabel(WEEK.label)!;
+		r = m.review.reviewByLabel(1, WEEK.label)!;
 
-		const done = m.review.completeReview(r, settings);
+		const done = m.review.completeReview(1, r, settings);
 
 		expect(done.completedAt).not.toBeNull();
 		expect(done.totalSpentMinor).toBe(100_000);
@@ -346,17 +346,17 @@ describe('the weekly artefact', () => {
 	});
 
 	it('records the share, which is the free half of the intervention', () => {
-		const r = m.review.reviewByLabel(WEEK.label)!;
+		const r = m.review.reviewByLabel(1, WEEK.label)!;
 		expect(r.sharedAt).toBeNull();
-		m.review.markShared(r.id);
-		expect(m.review.reviewByLabel(WEEK.label)!.sharedAt).not.toBeNull();
+		m.review.markShared(1, r.id);
+		expect(m.review.reviewByLabel(1, WEEK.label)!.sharedAt).not.toBeNull();
 	});
 
 	it('stops reporting a review as due once it is complete', () => {
 		// On Sunday 10 May the last complete week is 3–9 May.
-		const r = m.review.reviewByLabel(WEEK.label)!;
+		const r = m.review.reviewByLabel(1, WEEK.label)!;
 		expect(r.completedAt).not.toBeNull();
-		expect(m.review.weeklyReviewDue('2026-05-10', 0)).toBeNull();
+		expect(m.review.weeklyReviewDue(1, '2026-05-10', 0)).toBeNull();
 	});
 });
 

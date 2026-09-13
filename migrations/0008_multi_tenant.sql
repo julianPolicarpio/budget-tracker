@@ -13,7 +13,8 @@
 -- NOT NULL everywhere, so there is no such thing as a row without an owner.
 --
 -- Seven unique constraints were global and every one breaks with two users.
--- Five of them are column- or table-level and need a full table rebuild;
+-- Five of them are column- or table-level and need a full table rebuild; a
+-- sixth table, settings, is rebuilt for a different reason given below.
 -- SQLite cannot drop a constraint in place. Two are indexes and are simply
 -- dropped and recreated. Enumerated from the live schema rather than from
 -- memory, because the first draft of the spec found only four:
@@ -48,9 +49,9 @@
 -- never passes through a state where data exists without an owner.
 --
 -- ON `DEFAULT 1`, WHICH IS A COMPROMISE AND SHOULD BE READ AS ONE. SQLite
--- cannot add a NOT NULL column without a non-NULL default, so the fifteen
+-- cannot add a NOT NULL column without a non-NULL default, so the fourteen
 -- appended columns must carry one; and removing a default afterwards needs yet
--- another rebuild of all fifteen. The five rebuilt tables take the same default
+-- another rebuild of all fourteen. The six rebuilt tables take the same default
 -- so that one rule describes the whole schema instead of five exceptions.
 --
 -- The hazard is real and worth naming: with a default in place, an INSERT that
@@ -205,7 +206,40 @@ INSERT INTO phase_change_new
 DROP TABLE phase_change;
 ALTER TABLE phase_change_new RENAME TO phase_change;
 
--- ── The other fifteen: the column appends ────────────────────────────────
+-- settings: a HARD singleton, `id INTEGER PRIMARY KEY CHECK (id = 1)`. Adding
+-- a column and a unique index is not enough and was the first draft's mistake:
+-- the CHECK rejects a second row outright, so a second user could not hold
+-- settings at all and sign-up in A2 would have been impossible. The constraint
+-- has to go, which means a rebuild.
+--
+-- The singleton property it was protecting is real and is kept, moved to where
+-- it now belongs: one settings row per person, enforced by idx_settings_user
+-- below rather than by pinning the primary key to a literal.
+CREATE TABLE settings_new (
+  id              INTEGER PRIMARY KEY,
+  currency_code   TEXT    NOT NULL,
+  currency_symbol TEXT    NOT NULL,
+  minor_units     INTEGER NOT NULL DEFAULT 2,
+  rounding_step   INTEGER NOT NULL DEFAULT 1000,
+  period_kind     TEXT    NOT NULL CHECK (period_kind IN ('weekly','semimonthly','monthly')),
+  week_starts_on  INTEGER NOT NULL DEFAULT 0,
+  haircut_pct     INTEGER NOT NULL DEFAULT 15,
+  band_pct        INTEGER NOT NULL DEFAULT 10,
+  phase           INTEGER NOT NULL DEFAULT 0,
+  timezone        TEXT    NOT NULL DEFAULT 'UTC',
+  created_at      TEXT    NOT NULL,
+  weekly_take_home_minor INTEGER,
+  user_id         INTEGER NOT NULL DEFAULT 1 REFERENCES app_user(id) ON DELETE CASCADE
+);
+INSERT INTO settings_new
+  SELECT id, currency_code, currency_symbol, minor_units, rounding_step,
+         period_kind, week_starts_on, haircut_pct, band_pct, phase, timezone,
+         created_at, weekly_take_home_minor, 1
+  FROM settings;
+DROP TABLE settings;
+ALTER TABLE settings_new RENAME TO settings;
+
+-- ── The other fourteen: the column appends ────────────────────────────────
 --
 -- DEFAULT 1 does double duty. It backfills every existing row to the owner in
 -- the same statement that adds the column, and SQLite requires a non-NULL
@@ -220,7 +254,6 @@ ALTER TABLE irregular          ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1 REF
 ALTER TABLE irregular_instance ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1 REFERENCES app_user(id) ON DELETE CASCADE;
 ALTER TABLE period             ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1 REFERENCES app_user(id) ON DELETE CASCADE;
 ALTER TABLE rule               ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1 REFERENCES app_user(id) ON DELETE CASCADE;
-ALTER TABLE settings           ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1 REFERENCES app_user(id) ON DELETE CASCADE;
 ALTER TABLE subscription       ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1 REFERENCES app_user(id) ON DELETE CASCADE;
 ALTER TABLE transfer           ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1 REFERENCES app_user(id) ON DELETE CASCADE;
 ALTER TABLE trip               ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1 REFERENCES app_user(id) ON DELETE CASCADE;

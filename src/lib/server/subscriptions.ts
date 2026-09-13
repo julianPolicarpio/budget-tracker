@@ -14,7 +14,7 @@
  */
 
 import { and, asc, eq, isNotNull, isNull, lte } from 'drizzle-orm';
-import { db, schema } from './db';
+import { forUser, schema } from './db';
 import { addDays, daysBetween } from './clock';
 import { addMonths } from './irregulars';
 import { CADENCE_MONTHS, type Cadence } from '$lib/subscription-cadence';
@@ -47,19 +47,25 @@ export function advanceCharge(sub: Pick<Subscription, 'nextChargeOn' | 'cadence'
 	return addMonths(sub.nextChargeOn, CADENCE_MONTHS[sub.cadence as Cadence]);
 }
 
-export function listSubscriptions(includeCancelled = false): Subscription[] {
+export function listSubscriptions(userId: number, includeCancelled = false): Subscription[] {
+	const { db, owns } = forUser(userId);
 	const q = db.select().from(schema.subscription);
 	const rows = includeCancelled
-		? q.orderBy(asc(schema.subscription.nextChargeOn)).all()
+		? q.where(owns(schema.subscription)).orderBy(asc(schema.subscription.nextChargeOn)).all()
 		: q
-				.where(isNull(schema.subscription.cancelledAt))
+				.where(and(owns(schema.subscription), isNull(schema.subscription.cancelledAt)))
 				.orderBy(asc(schema.subscription.nextChargeOn))
 				.all();
 	return rows;
 }
 
-export function getSubscription(id: number): Subscription | undefined {
-	return db.select().from(schema.subscription).where(eq(schema.subscription.id, id)).get();
+export function getSubscription(userId: number, id: number): Subscription | undefined {
+	const { db, owns } = forUser(userId);
+	return db
+		.select()
+		.from(schema.subscription)
+		.where(and(owns(schema.subscription), eq(schema.subscription.id, id)))
+		.get();
 }
 
 export interface NewSubscription {
@@ -96,9 +102,9 @@ export interface NewSubscription {
  */
 const AVG_DAYS_PER_MONTH = 365.25 / 12;
 
-export function commitmentsPerPeriod(daysPerPeriod: number, today?: string): number {
+export function commitmentsPerPeriod(userId: number, daysPerPeriod: number, today?: string): number {
 	return Math.round(
-		listSubscriptions().reduce((sum, sub) => {
+		listSubscriptions(userId).reduce((sum, sub) => {
 			// A commitment still inside its free trial costs nothing yet. Reserving
 			// for it would park real money against a charge that may never arrive
 			// — the entire point of the deadline is that you get to say no. It
@@ -113,15 +119,22 @@ export function commitmentsPerPeriod(daysPerPeriod: number, today?: string): num
 }
 
 /** Split by whether cancelling is even an option — the cull only hunts one side. */
-export function commitmentsByKind(): { essential: Subscription[]; discretionary: Subscription[] } {
-	const live = listSubscriptions();
+export function commitmentsByKind(
+	userId: number
+): { essential: Subscription[]; discretionary: Subscription[] } {
+	const live = listSubscriptions(userId);
 	return {
 		essential: live.filter((s) => s.isEssential === 1),
 		discretionary: live.filter((s) => s.isEssential !== 1)
 	};
 }
 
-export function createSubscription(input: NewSubscription, now: Date = new Date()): number {
+export function createSubscription(
+	userId: number,
+	input: NewSubscription,
+	now: Date = new Date()
+): number {
+	const { db } = forUser(userId);
 	const row = db
 		.insert(schema.subscription)
 		.values({
@@ -141,7 +154,8 @@ export function createSubscription(input: NewSubscription, now: Date = new Date(
 			note: input.note ?? null,
 			createdAt: now.toISOString(),
 			cancelledAt: null,
-			isEssential: input.isEssential ? 1 : 0
+			isEssential: input.isEssential ? 1 : 0,
+			userId
 		})
 		.returning({ id: schema.subscription.id })
 		.get();
@@ -162,8 +176,9 @@ export interface SubscriptionEdit extends NewSubscription {
  * alert state alone, so correcting a typo in a label does not re-nag you about
  * a decision you have already been warned about.
  */
-export function updateSubscription(id: number, input: SubscriptionEdit): void {
-	const before = getSubscription(id);
+export function updateSubscription(userId: number, id: number, input: SubscriptionEdit): void {
+	const { db, owns } = forUser(userId);
+	const before = getSubscription(userId, id);
 	if (!before) return;
 
 	const deadlineMoved =
@@ -186,22 +201,24 @@ export function updateSubscription(id: number, input: SubscriptionEdit): void {
 			isEssential: input.isEssential ? 1 : 0,
 			...(deadlineMoved ? { alertStage: 0, alertedAt: null } : {})
 		})
-		.where(eq(schema.subscription.id, id))
+		.where(and(owns(schema.subscription), eq(schema.subscription.id, id)))
 		.run();
 }
 
 /** Undo an "Ended it" — the button is one click and mistakes are cheap to make. */
-export function restoreSubscription(id: number): void {
+export function restoreSubscription(userId: number, id: number): void {
+	const { db, owns } = forUser(userId);
 	db.update(schema.subscription)
 		.set({ cancelledAt: null })
-		.where(eq(schema.subscription.id, id))
+		.where(and(owns(schema.subscription), eq(schema.subscription.id, id)))
 		.run();
 }
 
-export function cancelSubscription(id: number, now: Date = new Date()): void {
+export function cancelSubscription(userId: number, id: number, now: Date = new Date()): void {
+	const { db, owns } = forUser(userId);
 	db.update(schema.subscription)
 		.set({ cancelledAt: now.toISOString() })
-		.where(eq(schema.subscription.id, id))
+		.where(and(owns(schema.subscription), eq(schema.subscription.id, id)))
 		.run();
 }
 
@@ -211,8 +228,9 @@ export function cancelSubscription(id: number, now: Date = new Date()): void {
  * Re-arming matters. A subscription you decided to keep in 2027 is one you
  * should be asked about again in 2028 — the cull is not a one-time gate.
  */
-export function keepSubscription(id: number, today: string): void {
-	const sub = getSubscription(id);
+export function keepSubscription(userId: number, id: number, today: string): void {
+	const { db, owns } = forUser(userId);
+	const sub = getSubscription(userId, id);
 	if (!sub) return;
 
 	const nextCharge = sub.nextChargeOn <= today ? advanceCharge(sub) : sub.nextChargeOn;
@@ -226,14 +244,15 @@ export function keepSubscription(id: number, today: string): void {
 			alertedAt: null,
 			lastUsedOn: today
 		})
-		.where(eq(schema.subscription.id, id))
+		.where(and(owns(schema.subscription), eq(schema.subscription.id, id)))
 		.run();
 }
 
-export function markUsed(id: number, today: string): void {
+export function markUsed(userId: number, id: number, today: string): void {
+	const { db, owns } = forUser(userId);
 	db.update(schema.subscription)
 		.set({ lastUsedOn: today })
-		.where(eq(schema.subscription.id, id))
+		.where(and(owns(schema.subscription), eq(schema.subscription.id, id)))
 		.run();
 }
 
@@ -251,11 +270,18 @@ export interface PendingAlert {
  * window in SQL: the set is a handful of rows, and the date arithmetic stays
  * next to the rule it implements instead of being split across two languages.
  */
-export function pendingAlerts(today: string): PendingAlert[] {
+export function pendingAlerts(userId: number, today: string): PendingAlert[] {
+	const { db, owns } = forUser(userId);
 	const live = db
 		.select()
 		.from(schema.subscription)
-		.where(and(isNull(schema.subscription.cancelledAt), isNotNull(schema.subscription.cancelByOn)))
+		.where(
+			and(
+				owns(schema.subscription),
+				isNull(schema.subscription.cancelledAt),
+				isNotNull(schema.subscription.cancelByOn)
+			)
+		)
 		.all();
 
 	const out: PendingAlert[] = [];
@@ -276,10 +302,11 @@ export function pendingAlerts(today: string): PendingAlert[] {
 	return out;
 }
 
-export function recordAlert(id: number, stage: 1 | 2, now: Date = new Date()): void {
+export function recordAlert(userId: number, id: number, stage: 1 | 2, now: Date = new Date()): void {
+	const { db, owns } = forUser(userId);
 	db.update(schema.subscription)
 		.set({ alertStage: stage, alertedAt: now.toISOString() })
-		.where(eq(schema.subscription.id, id))
+		.where(and(owns(schema.subscription), eq(schema.subscription.id, id)))
 		.run();
 }
 
@@ -298,12 +325,14 @@ export interface SubscriptionHorizon {
 	isTrial: boolean;
 }
 
-export function subscriptionHorizon(today: string): SubscriptionHorizon | null {
+export function subscriptionHorizon(userId: number, today: string): SubscriptionHorizon | null {
+	const { db, owns } = forUser(userId);
 	const rows = db
 		.select()
 		.from(schema.subscription)
 		.where(
 			and(
+				owns(schema.subscription),
 				isNull(schema.subscription.cancelledAt),
 				isNotNull(schema.subscription.cancelByOn),
 				lte(schema.subscription.cancelByOn, addDays(today, 30))
@@ -338,11 +367,11 @@ export interface CullRow {
 	stale: boolean;
 }
 
-export function cullList(today: string): CullRow[] {
+export function cullList(userId: number, today: string): CullRow[] {
 	// Essential commitments are excluded outright. "Used your home internet in
 	// the last 30 days?" is not a question, and a cull that asks it trains you
 	// to skim past the ones that are real.
-	return commitmentsByKind().discretionary.map((sub) => {
+	return commitmentsByKind(userId).discretionary.map((sub) => {
 		const staleDays = sub.lastUsedOn === null ? null : daysBetween(sub.lastUsedOn, today);
 		return {
 			sub,
@@ -354,6 +383,6 @@ export function cullList(today: string): CullRow[] {
 }
 
 /** What the whole live set costs per year — the cull's headline figure. */
-export function annualisedTotalMinor(): number {
-	return listSubscriptions().reduce((sum, s) => sum + annualisedMinor(s), 0);
+export function annualisedTotalMinor(userId: number): number {
+	return listSubscriptions(userId).reduce((sum, s) => sum + annualisedMinor(s), 0);
 }

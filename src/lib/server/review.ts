@@ -10,7 +10,7 @@
  */
 
 import { and, desc, eq, lt } from 'drizzle-orm';
-import { db, schema } from './db';
+import { forUser, schema } from './db';
 import { formatMoney } from '$lib/money';
 import { bufferWeeksX100, logAdherenceBp, weekActuals } from './metrics';
 import { computeStreak } from './streak';
@@ -35,11 +35,14 @@ export function isStepKey(v: unknown): v is StepKey {
 }
 
 /** Get or create the weekly review row. Created open; R6 completes it. */
-export function ensureWeeklyReview(week: Week, now: Date = new Date()): Review {
+export function ensureWeeklyReview(userId: number, week: Week, now: Date = new Date()): Review {
+	const { db, owns } = forUser(userId);
 	const existing = db
 		.select()
 		.from(schema.review)
-		.where(and(eq(schema.review.kind, 'weekly'), eq(schema.review.periodLabel, week.label)))
+		.where(
+			and(owns(schema.review), eq(schema.review.kind, 'weekly'), eq(schema.review.periodLabel, week.label))
+		)
 		.get();
 	if (existing) return existing;
 
@@ -49,7 +52,8 @@ export function ensureWeeklyReview(week: Week, now: Date = new Date()): Review {
 			periodLabel: week.label,
 			startsOn: week.startsOn,
 			endsOn: week.endsOn,
-			createdAt: now.toISOString()
+			createdAt: now.toISOString(),
+			userId
 		})
 		.onConflictDoNothing()
 		.run();
@@ -57,39 +61,46 @@ export function ensureWeeklyReview(week: Week, now: Date = new Date()): Review {
 	return db
 		.select()
 		.from(schema.review)
-		.where(and(eq(schema.review.kind, 'weekly'), eq(schema.review.periodLabel, week.label)))
+		.where(
+			and(owns(schema.review), eq(schema.review.kind, 'weekly'), eq(schema.review.periodLabel, week.label))
+		)
 		.get()!;
 }
 
-export function reviewByLabel(label: string): Review | null {
+export function reviewByLabel(userId: number, label: string): Review | null {
+	const { db, owns } = forUser(userId);
 	return (
 		db
 			.select()
 			.from(schema.review)
-			.where(and(eq(schema.review.kind, 'weekly'), eq(schema.review.periodLabel, label)))
+			.where(and(owns(schema.review), eq(schema.review.kind, 'weekly'), eq(schema.review.periodLabel, label)))
 			.get() ?? null
 	);
 }
 
 /** The review immediately before this one — the source of R1's ghost values. */
-export function priorReview(review: Review): Review | null {
+export function priorReview(userId: number, review: Review): Review | null {
+	const { db, owns } = forUser(userId);
 	return (
 		db
 			.select()
 			.from(schema.review)
-			.where(and(eq(schema.review.kind, 'weekly'), lt(schema.review.endsOn, review.endsOn)))
+			.where(
+				and(owns(schema.review), eq(schema.review.kind, 'weekly'), lt(schema.review.endsOn, review.endsOn))
+			)
 			.orderBy(desc(schema.review.endsOn))
 			.limit(1)
 			.get() ?? null
 	);
 }
 
-export function stepPayloads(reviewId: number): Record<string, unknown> {
+export function stepPayloads(userId: number, reviewId: number): Record<string, unknown> {
+	const { db, owns } = forUser(userId);
 	const out: Record<string, unknown> = {};
 	for (const row of db
 		.select()
 		.from(schema.reviewStep)
-		.where(eq(schema.reviewStep.reviewId, reviewId))
+		.where(and(owns(schema.reviewStep), eq(schema.reviewStep.reviewId, reviewId)))
 		.all()) {
 		if (row.doneAt) out[row.stepKey] = row.payload ? JSON.parse(row.payload) : true;
 	}
@@ -97,11 +108,13 @@ export function stepPayloads(reviewId: number): Record<string, unknown> {
 }
 
 export function saveStep(
+	userId: number,
 	reviewId: number,
 	stepKey: StepKey,
 	payload: unknown,
 	now: Date = new Date()
 ): void {
+	const { db } = forUser(userId);
 	const values = {
 		reviewId,
 		stepKey,
@@ -109,7 +122,7 @@ export function saveStep(
 		payload: payload === undefined ? null : JSON.stringify(payload)
 	};
 	db.insert(schema.reviewStep)
-		.values(values)
+		.values({ ...values, userId })
 		.onConflictDoUpdate({
 			target: [schema.reviewStep.reviewId, schema.reviewStep.stepKey],
 			set: { doneAt: values.doneAt, payload: values.payload }
@@ -119,6 +132,7 @@ export function saveStep(
 
 /** R1's four asserted balances. Typing them is the intervention (F7). */
 export function saveBalances(
+	userId: number,
 	reviewId: number,
 	b: {
 		spendBalanceMinor: number | null;
@@ -127,7 +141,11 @@ export function saveBalances(
 		debtTotalMinor: number | null;
 	}
 ): void {
-	db.update(schema.review).set(b).where(eq(schema.review.id, reviewId)).run();
+	const { db, owns } = forUser(userId);
+	db.update(schema.review)
+		.set(b)
+		.where(and(owns(schema.review), eq(schema.review.id, reviewId)))
+		.run();
 }
 
 /**
@@ -137,13 +155,20 @@ export function saveBalances(
  * assigns to a phase. A fabricated metric is worse than a missing one — the
  * whole point of the artefact is that it is true.
  */
-export function completeReview(review: Review, settings: Settings, now: Date = new Date()): Review {
+export function completeReview(
+	userId: number,
+	review: Review,
+	settings: Settings,
+	now: Date = new Date()
+): Review {
+	const { db, owns } = forUser(userId);
 	const range = { from: review.startsOn, to: review.endsOn };
-	const actuals = weekActuals(range);
+	const actuals = weekActuals(userId, range);
 
 	const loggedDays = db
 		.select({ loggedOn: schema.logDay.loggedOn })
 		.from(schema.logDay)
+		.where(owns(schema.logDay))
 		.all()
 		.map((r) => r.loggedOn);
 	const streak = computeStreak(loggedDays, review.endsOn);
@@ -155,22 +180,30 @@ export function completeReview(review: Review, settings: Settings, now: Date = n
 		bufferWeeksX100: bufferWeeksX100(review.bufferMinor, settings.weeklyTakeHomeMinor),
 		// Below 1.0 this is the leading indicator that Buffer is about to be
 		// raided, which is why it is snapshotted rather than merely displayed.
-		coverageRatioBp: coverage(review.endsOn).ratioBp,
-		logAdherenceBp: logAdherenceBp(range),
+		coverageRatioBp: coverage(userId, review.endsOn).ratioBp,
+		logAdherenceBp: logAdherenceBp(userId, range),
 		streakAtClose: streak.current,
 		summaryLine: ''
 	};
 
 	snapshot.summaryLine = summaryLine({ ...review, ...snapshot }, settings);
-	db.update(schema.review).set(snapshot).where(eq(schema.review.id, review.id)).run();
+	db.update(schema.review)
+		.set(snapshot)
+		.where(and(owns(schema.review), eq(schema.review.id, review.id)))
+		.run();
 
-	return db.select().from(schema.review).where(eq(schema.review.id, review.id)).get()!;
+	return db
+		.select()
+		.from(schema.review)
+		.where(and(owns(schema.review), eq(schema.review.id, review.id)))
+		.get()!;
 }
 
-export function markShared(reviewId: number, now: Date = new Date()): void {
+export function markShared(userId: number, reviewId: number, now: Date = new Date()): void {
+	const { db, owns } = forUser(userId);
 	db.update(schema.review)
 		.set({ sharedAt: now.toISOString() })
-		.where(eq(schema.review.id, reviewId))
+		.where(and(owns(schema.review), eq(schema.review.id, reviewId)))
 		.run();
 }
 
@@ -215,8 +248,8 @@ export function deltaVsPrior(review: Review, prior: Review | null) {
  * Is a weekly review outstanding? True once the week has finished and no
  * completed row exists for it.
  */
-export function weeklyReviewDue(today: string, weekStartsOn: number): Week | null {
+export function weeklyReviewDue(userId: number, today: string, weekStartsOn: number): Week | null {
 	const week = weekOf(addDays(weekOf(today, weekStartsOn).startsOn, -1), weekStartsOn);
-	const existing = reviewByLabel(week.label);
+	const existing = reviewByLabel(userId, week.label);
 	return existing?.completedAt ? null : week;
 }

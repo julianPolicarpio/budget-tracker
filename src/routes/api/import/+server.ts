@@ -35,11 +35,12 @@ const RESTORE_ORDER = [
 	'job_run'
 ] as const;
 
-export const POST: RequestHandler = async ({ request, url }) => {
+export const POST: RequestHandler = async ({ request, url, locals }) => {
+	const userId = locals.userId;
 	if (url.searchParams.get('confirm') !== 'replace') {
 		error(
 			400,
-			'This replaces every table in the database. Re-send with ?confirm=replace if that is what you want.'
+			'This replaces all of your data. Re-send with ?confirm=replace if that is what you want.'
 		);
 	}
 
@@ -62,9 +63,15 @@ export const POST: RequestHandler = async ({ request, url }) => {
 		sqlite.exec('BEGIN');
 
 		// Children first on the way out, parents first on the way in.
+		//
+		// These DELETEs carried no WHERE clause until multi-tenancy landed. That
+		// was merely dramatic with one user and destructive across tenants: an
+		// import would have wiped every other account in the system and replaced
+		// it with the importer's file. Scoped, "replace everything" means replace
+		// everything *of yours*.
 		for (const table of [...RESTORE_ORDER].reverse()) {
 			try {
-				sqlite.exec(`DELETE FROM ${table}`);
+				sqlite.prepare(`DELETE FROM ${table} WHERE user_id = ?`).run(userId);
 			} catch {
 				// Table absent in this schema version; nothing to clear.
 			}
@@ -77,11 +84,16 @@ export const POST: RequestHandler = async ({ request, url }) => {
 				continue;
 			}
 
-			const columns = Object.keys(rows[0]);
+			// user_id is taken from the session, never from the file. A payload
+			// claiming to own someone else's rows must not be able to write them,
+			// so the exported value is dropped and the importer's own id is
+			// substituted on every row.
+			const columns = Object.keys(rows[0]).filter((c) => c !== 'user_id');
 			const stmt = sqlite.prepare(
-				`INSERT INTO ${table} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`
+				`INSERT INTO ${table} (${[...columns, 'user_id'].join(',')}) ` +
+					`VALUES (${[...columns, 'user_id'].map(() => '?').join(',')})`
 			);
-			for (const row of rows) stmt.run(columns.map((c) => row[c] ?? null));
+			for (const row of rows) stmt.run([...columns.map((c) => row[c] ?? null), userId]);
 			applied[table] = rows.length;
 		}
 

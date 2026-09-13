@@ -8,7 +8,7 @@
  */
 
 import { and, asc, desc, eq, isNull, isNotNull } from 'drizzle-orm';
-import { db, schema } from './db';
+import { forUser, schema } from './db';
 import type { Account, Goal, Transfer } from './db/schema';
 
 /**
@@ -25,23 +25,37 @@ export class IouRequired extends Error {
 	}
 }
 
-export function listAccounts(): Account[] {
+export function listAccounts(userId: number): Account[] {
+	const { db, owns } = forUser(userId);
 	return db
 		.select()
 		.from(schema.account)
-		.where(isNull(schema.account.archivedAt))
+		.where(and(owns(schema.account), isNull(schema.account.archivedAt)))
 		.orderBy(asc(schema.account.sortOrder))
 		.all();
 }
 
-export function accountByKind(kind: Account['kind']): Account | null {
-	return db.select().from(schema.account).where(eq(schema.account.kind, kind)).get() ?? null;
+export function accountByKind(userId: number, kind: Account['kind']): Account | null {
+	const { db, owns } = forUser(userId);
+	return (
+		db
+			.select()
+			.from(schema.account)
+			.where(and(owns(schema.account), eq(schema.account.kind, kind)))
+			.get() ?? null
+	);
 }
 
-export function assertBalance(accountId: number, balanceMinor: number, asOf: string): void {
+export function assertBalance(
+	userId: number,
+	accountId: number,
+	balanceMinor: number,
+	asOf: string
+): void {
+	const { db, owns } = forUser(userId);
 	db.update(schema.account)
 		.set({ balanceMinor, balanceAsOf: asOf })
-		.where(eq(schema.account.id, accountId))
+		.where(and(owns(schema.account), eq(schema.account.id, accountId)))
 		.run();
 }
 
@@ -62,13 +76,18 @@ export interface TransferInput {
  * countable event, and reading four of them in a row at the quarterly review
  * does more than any rule prohibiting the transfer would have.
  */
-export function recordTransfer(input: TransferInput, now: Date = new Date()): Transfer {
+export function recordTransfer(userId: number, input: TransferInput, now: Date = new Date()): Transfer {
+	const { db, owns } = forUser(userId);
 	const from = db
 		.select()
 		.from(schema.account)
-		.where(eq(schema.account.id, input.fromAccountId))
+		.where(and(owns(schema.account), eq(schema.account.id, input.fromAccountId)))
 		.get();
-	const to = db.select().from(schema.account).where(eq(schema.account.id, input.toAccountId)).get();
+	const to = db
+		.select()
+		.from(schema.account)
+		.where(and(owns(schema.account), eq(schema.account.id, input.toAccountId)))
+		.get();
 
 	if (!from || !to) throw new Error('Unknown account');
 	if (from.id === to.id) throw new Error('An account cannot transfer to itself');
@@ -88,21 +107,26 @@ export function recordTransfer(input: TransferInput, now: Date = new Date()): Tr
 				amountMinor: input.amountMinor,
 				iouReason: needsIou ? reason : (reason ?? null),
 				iouRepayBy: input.iouRepayBy?.trim() || null,
-				createdAt: now.toISOString()
+				createdAt: now.toISOString(),
+				userId
 			})
 			.returning({ id: schema.transfer.id })
 			.get().id;
 
 		tx.update(schema.account)
 			.set({ balanceMinor: from.balanceMinor - input.amountMinor, balanceAsOf: input.movedOn })
-			.where(eq(schema.account.id, from.id))
+			.where(and(owns(schema.account), eq(schema.account.id, from.id)))
 			.run();
 		tx.update(schema.account)
 			.set({ balanceMinor: to.balanceMinor + input.amountMinor, balanceAsOf: input.movedOn })
-			.where(eq(schema.account.id, to.id))
+			.where(and(owns(schema.account), eq(schema.account.id, to.id)))
 			.run();
 
-		return tx.select().from(schema.transfer).where(eq(schema.transfer.id, id)).get()!;
+		return tx
+			.select()
+			.from(schema.transfer)
+			.where(and(owns(schema.transfer), eq(schema.transfer.id, id)))
+			.get()!;
 	});
 }
 
@@ -123,7 +147,8 @@ export interface OpenIou {
  * Do not summarise this into a count. Reading four in a row is the mechanism;
  * "4 open IOUs" is a number you scroll past (Spec §8.3.5).
  */
-export function openIous(today: string): OpenIou[] {
+export function openIous(userId: number, today: string): OpenIou[] {
+	const { db, owns } = forUser(userId);
 	const fromAcc = schema.account;
 	return db
 		.select({
@@ -137,14 +162,16 @@ export function openIous(today: string): OpenIou[] {
 		})
 		.from(schema.transfer)
 		.innerJoin(fromAcc, eq(fromAcc.id, schema.transfer.fromAccountId))
-		.where(and(isNotNull(schema.transfer.iouReason), isNull(schema.transfer.repaidAt)))
+		.where(
+			and(owns(schema.transfer), isNotNull(schema.transfer.iouReason), isNull(schema.transfer.repaidAt))
+		)
 		.orderBy(asc(schema.transfer.movedOn))
 		.all()
 		.map((r) => {
 			const to = db
 				.select({ name: schema.account.name })
 				.from(schema.account)
-				.where(eq(schema.account.id, r.toAccountId))
+				.where(and(owns(schema.account), eq(schema.account.id, r.toAccountId)))
 				.get();
 			return {
 				id: r.id,
@@ -159,17 +186,20 @@ export function openIous(today: string): OpenIou[] {
 		});
 }
 
-export function repayIou(transferId: number, now: Date = new Date()): void {
+export function repayIou(userId: number, transferId: number, now: Date = new Date()): void {
+	const { db, owns } = forUser(userId);
 	db.update(schema.transfer)
 		.set({ repaidAt: now.toISOString() })
-		.where(eq(schema.transfer.id, transferId))
+		.where(and(owns(schema.transfer), eq(schema.transfer.id, transferId)))
 		.run();
 }
 
-export function recentTransfers(limit = 10) {
+export function recentTransfers(userId: number, limit = 10) {
+	const { db, owns } = forUser(userId);
 	return db
 		.select()
 		.from(schema.transfer)
+		.where(owns(schema.transfer))
 		.orderBy(desc(schema.transfer.movedOn), desc(schema.transfer.id))
 		.limit(limit)
 		.all();
@@ -177,7 +207,8 @@ export function recentTransfers(limit = 10) {
 
 // ─── Goals ────────────────────────────────────────────────────────────────
 
-export function listGoals(): (Goal & { accountName: string })[] {
+export function listGoals(userId: number): (Goal & { accountName: string })[] {
+	const { db, owns } = forUser(userId);
 	return db
 		.select({
 			id: schema.goal.id,
@@ -194,12 +225,13 @@ export function listGoals(): (Goal & { accountName: string })[] {
 		})
 		.from(schema.goal)
 		.innerJoin(schema.account, eq(schema.account.id, schema.goal.accountId))
-		.where(eq(schema.goal.status, 'active'))
+		.where(and(owns(schema.goal), eq(schema.goal.status, 'active')))
 		.orderBy(asc(schema.goal.id))
 		.all();
 }
 
 export function upsertGoal(
+	userId: number,
 	g: {
 		id?: number;
 		accountId: number;
@@ -210,6 +242,7 @@ export function upsertGoal(
 	},
 	now: Date = new Date()
 ): void {
+	const { db, owns } = forUser(userId);
 	if (g.id) {
 		db.update(schema.goal)
 			.set({
@@ -219,11 +252,11 @@ export function upsertGoal(
 				savedMinor: g.savedMinor,
 				targetDate: g.targetDate
 			})
-			.where(eq(schema.goal.id, g.id))
+			.where(and(owns(schema.goal), eq(schema.goal.id, g.id)))
 			.run();
 		return;
 	}
 	db.insert(schema.goal)
-		.values({ ...g, status: 'active', createdAt: now.toISOString() })
+		.values({ ...g, status: 'active', createdAt: now.toISOString(), userId })
 		.run();
 }

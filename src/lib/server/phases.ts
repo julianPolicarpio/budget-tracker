@@ -14,7 +14,7 @@
  */
 
 import { and, desc, eq, isNull } from 'drizzle-orm';
-import { db, schema } from './db';
+import { forUser, schema } from './db';
 import { accountByKind } from './accounts';
 import { openPeriodOn } from './rollover';
 import type { PhaseChange, Settings } from './db/schema';
@@ -80,13 +80,13 @@ export interface PhaseStatus {
  * quietly reports "not yet" when it actually cannot tell is worse than one that
  * admits it.
  */
-export function evaluateExit(settings: Settings, today: string): ExitVerdict {
+export function evaluateExit(userId: number, settings: Settings, today: string): ExitVerdict {
 	const money = (m: number) => (m / 10 ** settings.minorUnits).toLocaleString('en-US');
 
 	switch (settings.phase) {
 		case 0: {
-			const spend = accountByKind('spend');
-			const period = openPeriodOn(today);
+			const spend = accountByKind(userId, 'spend');
+			const period = openPeriodOn(userId, today);
 			if (!spend?.balanceAsOf) {
 				return { state: 'unevaluable', detail: 'Assert the Spend balance at review step R1.' };
 			}
@@ -103,7 +103,7 @@ export function evaluateExit(settings: Settings, today: string): ExitVerdict {
 		}
 
 		case 1: {
-			const buffer = accountByKind('buffer');
+			const buffer = accountByKind(userId, 'buffer');
 			if (!buffer?.balanceAsOf) {
 				return { state: 'unevaluable', detail: 'Assert the Buffer balance at review step R1.' };
 			}
@@ -137,22 +137,29 @@ export function evaluateExit(settings: Settings, today: string): ExitVerdict {
 	}
 }
 
-export function phaseStatus(settings: Settings, today: string): PhaseStatus {
+export function phaseStatus(userId: number, settings: Settings, today: string): PhaseStatus {
 	const current = PHASES[settings.phase] ?? PHASES[0];
 	return {
 		current,
 		next: PHASES[settings.phase + 1] ?? null,
-		verdict: evaluateExit(settings, today),
-		proposal: pendingProposal()
+		verdict: evaluateExit(userId, settings, today),
+		proposal: pendingProposal(userId)
 	};
 }
 
-export function pendingProposal(): PhaseChange | null {
+export function pendingProposal(userId: number): PhaseChange | null {
+	const { db, owns } = forUser(userId);
 	return (
 		db
 			.select()
 			.from(schema.phaseChange)
-			.where(and(isNull(schema.phaseChange.acceptedAt), isNull(schema.phaseChange.declinedAt)))
+			.where(
+				and(
+					owns(schema.phaseChange),
+					isNull(schema.phaseChange.acceptedAt),
+					isNull(schema.phaseChange.declinedAt)
+				)
+			)
 			.orderBy(desc(schema.phaseChange.id))
 			.get() ?? null
 	);
@@ -162,10 +169,15 @@ export function pendingProposal(): PhaseChange | null {
  * Nightly. Records a proposal when the exit clears — and does nothing else.
  * Idempotent on `(from, to, proposed_on)`.
  */
-export function proposePhaseChange(settings: Settings, today: string): PhaseChange | null {
-	if (pendingProposal()) return null;
+export function proposePhaseChange(
+	userId: number,
+	settings: Settings,
+	today: string
+): PhaseChange | null {
+	const { db } = forUser(userId);
+	if (pendingProposal(userId)) return null;
 
-	const verdict = evaluateExit(settings, today);
+	const verdict = evaluateExit(userId, settings, today);
 	if (verdict.state !== 'cleared') return null;
 
 	const to = settings.phase + 1;
@@ -176,31 +188,41 @@ export function proposePhaseChange(settings: Settings, today: string): PhaseChan
 			fromPhase: settings.phase,
 			toPhase: to,
 			proposedOn: today,
-			rationale: verdict.detail
+			rationale: verdict.detail,
+			userId
 		})
 		.onConflictDoNothing()
 		.run();
 
-	return pendingProposal();
+	return pendingProposal(userId);
 }
 
-export function acceptProposal(id: number, now: Date = new Date()): void {
+export function acceptProposal(userId: number, id: number, now: Date = new Date()): void {
+	const { db, owns } = forUser(userId);
 	db.transaction((tx) => {
-		const p = tx.select().from(schema.phaseChange).where(eq(schema.phaseChange.id, id)).get();
+		const p = tx
+			.select()
+			.from(schema.phaseChange)
+			.where(and(owns(schema.phaseChange), eq(schema.phaseChange.id, id)))
+			.get();
 		if (!p) throw new Error(`No phase proposal ${id}`);
 
 		tx.update(schema.phaseChange)
 			.set({ acceptedAt: now.toISOString() })
-			.where(eq(schema.phaseChange.id, id))
+			.where(and(owns(schema.phaseChange), eq(schema.phaseChange.id, id)))
 			.run();
-		tx.update(schema.settings).set({ phase: p.toPhase }).where(eq(schema.settings.id, 1)).run();
+		tx.update(schema.settings)
+			.set({ phase: p.toPhase })
+			.where(owns(schema.settings))
+			.run();
 	});
 }
 
-export function declineProposal(id: number, now: Date = new Date()): void {
+export function declineProposal(userId: number, id: number, now: Date = new Date()): void {
+	const { db, owns } = forUser(userId);
 	db.update(schema.phaseChange)
 		.set({ declinedAt: now.toISOString() })
-		.where(eq(schema.phaseChange.id, id))
+		.where(and(owns(schema.phaseChange), eq(schema.phaseChange.id, id)))
 		.run();
 }
 
@@ -210,9 +232,10 @@ export function declineProposal(id: number, now: Date = new Date()): void {
  * A downgrade is a normal event and the copy around this must not treat it as
  * failure — that framing is what produces the next blowout.
  */
-export function setPhase(phase: number, today: string, now: Date = new Date()): void {
+export function setPhase(userId: number, phase: number, today: string, now: Date = new Date()): void {
+	const { db, owns } = forUser(userId);
 	const target = Math.min(4, Math.max(0, phase));
-	const current = db.select().from(schema.settings).where(eq(schema.settings.id, 1)).get();
+	const current = db.select().from(schema.settings).where(owns(schema.settings)).get();
 	if (!current || current.phase === target) return;
 
 	db.transaction((tx) => {
@@ -222,10 +245,11 @@ export function setPhase(phase: number, today: string, now: Date = new Date()): 
 				toPhase: target,
 				proposedOn: today,
 				rationale: target > current.phase ? 'Moved up by hand' : 'Moved down by hand',
-				acceptedAt: now.toISOString()
+				acceptedAt: now.toISOString(),
+				userId
 			})
 			.onConflictDoNothing()
 			.run();
-		tx.update(schema.settings).set({ phase: target }).where(eq(schema.settings.id, 1)).run();
+		tx.update(schema.settings).set({ phase: target }).where(owns(schema.settings)).run();
 	});
 }

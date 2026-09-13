@@ -15,7 +15,7 @@
  */
 
 import { and, asc, eq, isNull } from 'drizzle-orm';
-import { db, schema } from './db';
+import { forUser, schema } from './db';
 import { requiredAccrualPerPeriod } from './irregulars';
 import { commitmentsPerPeriod } from './subscriptions';
 import { daysBetween } from './clock';
@@ -38,18 +38,23 @@ export interface ChecklistItem {
  * Create this period's known allocations if they are not there yet.
  * Idempotent via the unique index on (period_id, account_id).
  */
-export function ensureAllocations(period: Period, today: string): void {
-	const spend = db.select().from(schema.account).where(eq(schema.account.kind, 'spend')).get();
+export function ensureAllocations(userId: number, period: Period, today: string): void {
+	const { db, owns } = forUser(userId);
+	const spend = db
+		.select()
+		.from(schema.account)
+		.where(and(owns(schema.account), eq(schema.account.kind, 'spend')))
+		.get();
 	const irregulars = db
 		.select()
 		.from(schema.account)
-		.where(eq(schema.account.kind, 'irregulars'))
+		.where(and(owns(schema.account), eq(schema.account.kind, 'irregulars')))
 		.get();
 	if (!spend || !irregulars) return;
 
 	const rows = [{ accountId: spend.id, amountMinor: period.spendAllocMinor }];
 
-	const accrual = requiredAccrualPerPeriod(today, period.days);
+	const accrual = requiredAccrualPerPeriod(userId, today, period.days);
 	if (accrual > 0) rows.push({ accountId: irregulars.id, amountMinor: accrual });
 
 	// Bills: the steady cost of every live recurring commitment (Spec §158).
@@ -57,13 +62,17 @@ export function ensureAllocations(period: Period, today: string): void {
 	// so a subscription or a phone plan is silently paid out of Spend — which
 	// puts a cost you cannot decline inside the number that means "money you
 	// chose to spend", and quietly breaks the daily band.
-	const bills = db.select().from(schema.account).where(eq(schema.account.kind, 'bills')).get();
-	const committed = commitmentsPerPeriod(period.days, today);
+	const bills = db
+		.select()
+		.from(schema.account)
+		.where(and(owns(schema.account), eq(schema.account.kind, 'bills')))
+		.get();
+	const committed = commitmentsPerPeriod(userId, period.days, today);
 	if (bills && committed > 0) rows.push({ accountId: bills.id, amountMinor: committed });
 
 	for (const r of rows) {
 		db.insert(schema.allocation)
-			.values({ periodId: period.id, accountId: r.accountId, amountMinor: r.amountMinor })
+			.values({ periodId: period.id, accountId: r.accountId, amountMinor: r.amountMinor, userId })
 			.onConflictDoNothing()
 			.run();
 	}
@@ -86,6 +95,7 @@ export function ensureAllocations(period: Period, today: string): void {
 			.set({ amountMinor: committed })
 			.where(
 				and(
+					owns(schema.allocation),
 					eq(schema.allocation.periodId, period.id),
 					eq(schema.allocation.accountId, bills.id),
 					isNull(schema.allocation.executedAt)
@@ -95,7 +105,8 @@ export function ensureAllocations(period: Period, today: string): void {
 	}
 }
 
-export function checklist(period: Period, today: string): ChecklistItem[] {
+export function checklist(userId: number, period: Period, today: string): ChecklistItem[] {
+	const { db, owns } = forUser(userId);
 	return db
 		.select({
 			id: schema.allocation.id,
@@ -106,15 +117,15 @@ export function checklist(period: Period, today: string): ChecklistItem[] {
 		})
 		.from(schema.allocation)
 		.innerJoin(schema.account, eq(schema.account.id, schema.allocation.accountId))
-		.where(eq(schema.allocation.periodId, period.id))
+		.where(and(owns(schema.allocation), eq(schema.allocation.periodId, period.id)))
 		.orderBy(asc(schema.account.sortOrder))
 		.all()
 		.map((r) => ({ ...r, ageDays: daysBetween(period.startsOn, today) }));
 }
 
 /** Unexecuted allocations old enough to be worth interrupting Today for. */
-export function stalePending(period: Period, today: string): ChecklistItem[] {
-	return checklist(period, today).filter(
+export function stalePending(userId: number, period: Period, today: string): ChecklistItem[] {
+	return checklist(userId, period, today).filter(
 		(i) => i.executedAt === null && i.ageDays >= STALE_AFTER_DAYS
 	);
 }
@@ -124,24 +135,31 @@ export function stalePending(period: Period, today: string): ChecklistItem[] {
  * they made the transfer, and an untouched balance would contradict them at
  * the next review.
  */
-export function executeAllocation(allocationId: number, now: Date = new Date()): void {
+export function executeAllocation(userId: number, allocationId: number, now: Date = new Date()): void {
+	const { db, owns } = forUser(userId);
 	db.transaction((tx) => {
 		const alloc = tx
 			.select()
 			.from(schema.allocation)
-			.where(and(eq(schema.allocation.id, allocationId), isNull(schema.allocation.executedAt)))
+			.where(
+				and(
+					owns(schema.allocation),
+					eq(schema.allocation.id, allocationId),
+					isNull(schema.allocation.executedAt)
+				)
+			)
 			.get();
 		if (!alloc) return;
 
 		tx.update(schema.allocation)
 			.set({ executedAt: now.toISOString() })
-			.where(eq(schema.allocation.id, allocationId))
+			.where(and(owns(schema.allocation), eq(schema.allocation.id, allocationId)))
 			.run();
 
 		const account = tx
 			.select()
 			.from(schema.account)
-			.where(eq(schema.account.id, alloc.accountId))
+			.where(and(owns(schema.account), eq(schema.account.id, alloc.accountId)))
 			.get();
 		if (!account) return;
 
@@ -150,7 +168,7 @@ export function executeAllocation(allocationId: number, now: Date = new Date()):
 				balanceMinor: account.balanceMinor + alloc.amountMinor,
 				balanceAsOf: now.toISOString().slice(0, 10)
 			})
-			.where(eq(schema.account.id, account.id))
+			.where(and(owns(schema.account), eq(schema.account.id, account.id)))
 			.run();
 	});
 }

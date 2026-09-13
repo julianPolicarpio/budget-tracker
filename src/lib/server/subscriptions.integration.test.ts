@@ -69,49 +69,49 @@ describe('annualised cost', () => {
 	});
 
 	it('turns ₱285 a month into the ₱3,420 a year that makes the case', () => {
-		m.subs.createSubscription(GOOGLE);
+		m.subs.createSubscription(1, GOOGLE);
 		// The whole point of the cull headline: same fact, different volume.
-		expect(m.subs.annualisedTotalMinor()).toBe(342_000);
+		expect(m.subs.annualisedTotalMinor(1)).toBe(342_000);
 	});
 });
 
 describe('alert windows', () => {
 	it('stays silent outside the lead window', () => {
-		m.subs.createSubscription(GOOGLE);
-		expect(m.subs.pendingAlerts('2027-07-01')).toEqual([]);
+		m.subs.createSubscription(1, GOOGLE);
+		expect(m.subs.pendingAlerts(1, '2027-07-01')).toEqual([]);
 	});
 
 	it('fires stage 1 once the lead window opens, then not again', () => {
-		const id = m.subs.createSubscription(GOOGLE);
+		const id = m.subs.createSubscription(1, GOOGLE);
 
-		const first = m.subs.pendingAlerts('2027-07-24');
+		const first = m.subs.pendingAlerts(1, '2027-07-24');
 		expect(first).toHaveLength(1);
 		expect(first[0].stage).toBe(1);
 		expect(first[0].daysLeft).toBe(30);
 
-		m.subs.recordAlert(id, 1);
-		expect(m.subs.pendingAlerts('2027-07-25')).toEqual([]);
+		m.subs.recordAlert(1, id, 1);
+		expect(m.subs.pendingAlerts(1, '2027-07-25')).toEqual([]);
 	});
 
 	it('fires a second, final alert inside seven days', () => {
-		const id = m.subs.createSubscription(GOOGLE);
-		m.subs.recordAlert(id, 1);
+		const id = m.subs.createSubscription(1, GOOGLE);
+		m.subs.recordAlert(1, id, 1);
 
-		const final = m.subs.pendingAlerts('2027-08-17');
+		const final = m.subs.pendingAlerts(1, '2027-08-17');
 		expect(final).toHaveLength(1);
 		expect(final[0].stage).toBe(2);
 
-		m.subs.recordAlert(id, 2);
-		expect(m.subs.pendingAlerts('2027-08-22')).toEqual([]);
+		m.subs.recordAlert(1, id, 2);
+		expect(m.subs.pendingAlerts(1, '2027-08-22')).toEqual([]);
 	});
 
 	it('SLEEP-PROOF: still alerts when the trigger date passed unobserved', () => {
-		m.subs.createSubscription(GOOGLE);
+		m.subs.createSubscription(1, GOOGLE);
 
 		// The lead window opened on 2027-07-24 and the machine was shut. Nothing
 		// ran that day, that week, or for the three weeks after it. A date-keyed
 		// job would now be permanently past its only chance to fire.
-		const late = m.subs.pendingAlerts('2027-08-19');
+		const late = m.subs.pendingAlerts(1, '2027-08-19');
 
 		expect(late).toHaveLength(1);
 		expect(late[0].daysLeft).toBe(4);
@@ -120,26 +120,26 @@ describe('alert windows', () => {
 	});
 
 	it('goes quiet once the deadline has passed — the charge already landed', () => {
-		m.subs.createSubscription(GOOGLE);
-		expect(m.subs.pendingAlerts('2027-08-24')).toEqual([]);
+		m.subs.createSubscription(1, GOOGLE);
+		expect(m.subs.pendingAlerts(1, '2027-08-24')).toEqual([]);
 	});
 
 	it('goes quiet on a cancelled subscription', () => {
-		const id = m.subs.createSubscription(GOOGLE);
-		m.subs.cancelSubscription(id);
-		expect(m.subs.pendingAlerts('2027-08-01')).toEqual([]);
+		const id = m.subs.createSubscription(1, GOOGLE);
+		m.subs.cancelSubscription(1, id);
+		expect(m.subs.pendingAlerts(1, '2027-08-01')).toEqual([]);
 	});
 
 	it('ignores a subscription with no deadline set', () => {
-		m.subs.createSubscription({ ...GOOGLE, trialEndsOn: null, cancelByOn: null });
-		expect(m.subs.pendingAlerts('2027-08-22')).toEqual([]);
+		m.subs.createSubscription(1, { ...GOOGLE, trialEndsOn: null, cancelByOn: null });
+		expect(m.subs.pendingAlerts(1, '2027-08-22')).toEqual([]);
 	});
 });
 
 describe('the warning lead fits the cycle', () => {
 	it('stays quiet on a monthly renewal until it is genuinely close', () => {
 		// Recorded 24 Aug, first charge 24 Sept — the shape quick-add produces.
-		const id = m.subs.createSubscription({
+		const id = m.subs.createSubscription(1, {
 			...GOOGLE,
 			trialEndsOn: null,
 			nextChargeOn: '2026-09-24',
@@ -148,61 +148,61 @@ describe('the warning lead fits the cycle', () => {
 		});
 
 		// A 30-day lead would have fired here, one day after recording it.
-		expect(m.subs.pendingAlerts('2026-08-25')).toEqual([]);
-		expect(m.subs.pendingAlerts('2026-09-10')).toEqual([]);
+		expect(m.subs.pendingAlerts(1, '2026-08-25')).toEqual([]);
+		expect(m.subs.pendingAlerts(1, '2026-09-10')).toEqual([]);
 
 		// Seven days out it speaks up, once.
-		const due = m.subs.pendingAlerts('2026-09-17');
+		const due = m.subs.pendingAlerts(1, '2026-09-17');
 		expect(due).toHaveLength(1);
 		expect(due[0].sub.id).toBe(id);
 	});
 
 	it('still gives a yearly renewal a month of runway', () => {
-		m.subs.createSubscription({
+		m.subs.createSubscription(1, {
 			...GOOGLE,
 			cadence: 'annual',
 			trialEndsOn: null,
 			leadDays: DEFAULT_LEAD_DAYS.annual
 		});
 		// A decision worth ₱3,420 deserves more than a week to think about.
-		expect(m.subs.pendingAlerts('2027-07-24')).toHaveLength(1);
+		expect(m.subs.pendingAlerts(1, '2027-07-24')).toHaveLength(1);
 	});
 });
 
 describe('decisions', () => {
 	it('re-arms after a keep, so next year asks again', () => {
-		const id = m.subs.createSubscription(GOOGLE);
-		m.subs.recordAlert(id, 2);
+		const id = m.subs.createSubscription(1, GOOGLE);
+		m.subs.recordAlert(1, id, 2);
 
-		m.subs.keepSubscription(id, '2027-08-23');
+		m.subs.keepSubscription(1, id, '2027-08-23');
 
-		const sub = m.subs.getSubscription(id)!;
+		const sub = m.subs.getSubscription(1, id)!;
 		expect(sub.trialEndsOn).toBeNull();
 		expect(sub.nextChargeOn).toBe('2027-09-23');
 		expect(sub.cancelByOn).toBe('2027-09-23');
 		// Re-armed: the cull is recurring, not a one-time gate.
 		expect(sub.alertStage).toBe(0);
-		expect(m.subs.pendingAlerts('2027-09-01')).toHaveLength(1);
+		expect(m.subs.pendingAlerts(1, '2027-09-01')).toHaveLength(1);
 	});
 });
 
 describe('the cull (Spec §267)', () => {
 	it('flags a never-used subscription as stale', () => {
-		m.subs.createSubscription(GOOGLE);
-		const [row] = m.subs.cullList('2027-01-01');
+		m.subs.createSubscription(1, GOOGLE);
+		const [row] = m.subs.cullList(1, '2027-01-01');
 		expect(row.staleDays).toBeNull();
 		// Never recorded as used is the exact case the cull hunts.
 		expect(row.stale).toBe(true);
 	});
 
 	it('clears the flag when used inside 30 days, sets it beyond', () => {
-		const id = m.subs.createSubscription(GOOGLE);
+		const id = m.subs.createSubscription(1, GOOGLE);
 
-		m.subs.markUsed(id, '2026-12-20');
-		expect(m.subs.cullList('2027-01-01')[0].stale).toBe(false);
+		m.subs.markUsed(1, id, '2026-12-20');
+		expect(m.subs.cullList(1, '2027-01-01')[0].stale).toBe(false);
 
-		m.subs.markUsed(id, '2026-11-01');
-		expect(m.subs.cullList('2027-01-01')[0].stale).toBe(true);
+		m.subs.markUsed(1, id, '2026-11-01');
+		expect(m.subs.cullList(1, '2027-01-01')[0].stale).toBe(true);
 	});
 });
 
@@ -213,7 +213,7 @@ describe('delivery is what advances the state', () => {
 		process.env.SPLIT_DISABLE_NOTIFY = '1';
 		const jobs = await import('./jobs');
 
-		const id = m.subs.createSubscription({
+		const id = m.subs.createSubscription(1, {
 			...GOOGLE,
 			// Inside the lead window relative to the real clock, so the scheduler
 			// function — which reads the wall clock — actually sees it.
@@ -228,7 +228,7 @@ describe('delivery is what advances the state', () => {
 		expect(delivered).toBe(0);
 		// Still stage 0: undelivered is not the same as sent, so the next sweep
 		// tries again rather than silently swallowing the only warning.
-		expect(m.subs.getSubscription(id)!.alertStage).toBe(0);
+		expect(m.subs.getSubscription(1, id)!.alertStage).toBe(0);
 		delete process.env.SPLIT_DISABLE_NOTIFY;
 	});
 });
@@ -237,38 +237,38 @@ describe('what the split must reserve', () => {
 	it('spreads a monthly bill at its long-run weekly rate', () => {
 		// ₱750/month over a 7-day period. Not ₱750/4 — a month is not four weeks,
 		// and the error compounds to a fortnight a year.
-		m.subs.createSubscription({
+		m.subs.createSubscription(1, {
 			...GOOGLE,
 			label: 'Home wifi',
 			amountMinor: 75_000,
 			isEssential: true
 		});
-		expect(m.subs.commitmentsPerPeriod(7)).toBe(17_248);
+		expect(m.subs.commitmentsPerPeriod(1, 7)).toBe(17_248);
 	});
 
 	it('does not lurch as the charge date approaches', () => {
-		m.subs.createSubscription({ ...GOOGLE, amountMinor: 75_000 });
+		m.subs.createSubscription(1, { ...GOOGLE, amountMinor: 75_000 });
 		// The irregulars accrual rises as a deadline closes in, correctly, because
 		// the lump must be ready by a date. A recurring bill has no such date, so
 		// this figure is the same today as in three weeks.
-		const now = m.subs.commitmentsPerPeriod(7);
+		const now = m.subs.commitmentsPerPeriod(1, 7);
 		m.sqlite.exec(`UPDATE subscription SET next_charge_on = '2027-08-24'`);
-		expect(m.subs.commitmentsPerPeriod(7)).toBe(now);
+		expect(m.subs.commitmentsPerPeriod(1, 7)).toBe(now);
 	});
 
 	it('adds every live commitment together, rounding once at the end', () => {
-		m.subs.createSubscription({ ...GOOGLE, amountMinor: 75_000, isEssential: true });
-		m.subs.createSubscription({ ...GOOGLE, label: 'Google AI Plus', amountMinor: 28_500 });
+		m.subs.createSubscription(1, { ...GOOGLE, amountMinor: 75_000, isEssential: true });
+		m.subs.createSubscription(1, { ...GOOGLE, label: 'Google AI Plus', amountMinor: 28_500 });
 
 		// 23803, not 17248 + 6554 = 23802. Rounding each line first and adding
 		// the results throws away a centavo per row; the reservation is one
 		// figure, so it is rounded once.
-		expect(m.subs.commitmentsPerPeriod(7)).toBe(23_803);
+		expect(m.subs.commitmentsPerPeriod(1, 7)).toBe(23_803);
 	});
 
 	it('reserves nothing for a commitment still inside its free trial', () => {
-		m.subs.createSubscription({ ...GOOGLE, amountMinor: 28_500 }); // trial to 2027-08-23
-		m.subs.createSubscription({
+		m.subs.createSubscription(1, { ...GOOGLE, amountMinor: 28_500 }); // trial to 2027-08-23
+		m.subs.createSubscription(1, {
 			...GOOGLE,
 			label: 'Home wifi',
 			amountMinor: 75_000,
@@ -278,16 +278,16 @@ describe('what the split must reserve', () => {
 
 		// Only the wifi. Parking money against a charge you can still decline is
 		// how a budget starves the present to fund a hypothetical.
-		expect(m.subs.commitmentsPerPeriod(7, '2026-08-23')).toBe(17_248);
+		expect(m.subs.commitmentsPerPeriod(1, 7, '2026-08-23')).toBe(17_248);
 
 		// The day it starts charging, it starts costing.
-		expect(m.subs.commitmentsPerPeriod(7, '2027-08-23')).toBe(23_803);
+		expect(m.subs.commitmentsPerPeriod(1, 7, '2027-08-23')).toBe(23_803);
 	});
 
 	it('drops a cancelled commitment from the reservation', () => {
-		const id = m.subs.createSubscription({ ...GOOGLE, amountMinor: 75_000 });
-		m.subs.cancelSubscription(id);
-		expect(m.subs.commitmentsPerPeriod(7)).toBe(0);
+		const id = m.subs.createSubscription(1, { ...GOOGLE, amountMinor: 75_000 });
+		m.subs.cancelSubscription(1, id);
+		expect(m.subs.commitmentsPerPeriod(1, 7)).toBe(0);
 	});
 });
 
@@ -301,7 +301,7 @@ describe('a pile of free trials', () => {
 			{ label: 'AI tool C', amountMinor: 60_000, ends: '2026-09-15' }
 		];
 		for (const t of trials) {
-			m.subs.createSubscription({
+			m.subs.createSubscription(1, {
 				...GOOGLE,
 				label: t.label,
 				amountMinor: t.amountMinor,
@@ -312,22 +312,22 @@ describe('a pile of free trials', () => {
 		}
 
 		// Free today: the split reserves nothing, correctly.
-		expect(m.subs.commitmentsPerPeriod(7, '2026-08-24')).toBe(0);
+		expect(m.subs.commitmentsPerPeriod(1, 7, '2026-08-24')).toBe(0);
 
 		// But the annual headline shows the full exposure the whole time, which
 		// is the number that should make you cancel two of them.
-		expect(m.subs.annualisedTotalMinor()).toBe(28_500 * 12 + 115_000 * 12 + 60_000 * 12);
+		expect(m.subs.annualisedTotalMinor(1)).toBe(28_500 * 12 + 115_000 * 12 + 60_000 * 12);
 
 		// They convert one at a time, and the reservation steps up each time.
-		expect(m.subs.commitmentsPerPeriod(7, '2026-09-15')).toBe(13_799);
-		expect(m.subs.commitmentsPerPeriod(7, '2026-11-01')).toBe(40_246);
+		expect(m.subs.commitmentsPerPeriod(1, 7, '2026-09-15')).toBe(13_799);
+		expect(m.subs.commitmentsPerPeriod(1, 7, '2026-11-01')).toBe(40_246);
 	});
 
 	it('surfaces the nearest deadline first when several are pending', () => {
-		m.subs.createSubscription({ ...GOOGLE, label: 'later', cancelByOn: '2026-11-01' });
-		m.subs.createSubscription({ ...GOOGLE, label: 'sooner', cancelByOn: '2026-09-15' });
+		m.subs.createSubscription(1, { ...GOOGLE, label: 'later', cancelByOn: '2026-11-01' });
+		m.subs.createSubscription(1, { ...GOOGLE, label: 'sooner', cancelByOn: '2026-09-15' });
 
-		const alerts = m.subs.pendingAlerts('2026-09-10');
+		const alerts = m.subs.pendingAlerts(1, '2026-09-10');
 		expect(alerts).toHaveLength(1);
 		expect(alerts[0].sub.label).toBe('sooner');
 	});
@@ -335,14 +335,14 @@ describe('a pile of free trials', () => {
 
 describe('essentials are not culled', () => {
 	it('keeps a non-negotiable cost off the cull list entirely', () => {
-		m.subs.createSubscription({ ...GOOGLE, label: 'Home wifi', isEssential: true });
-		m.subs.createSubscription({ ...GOOGLE, label: 'Netflix' });
+		m.subs.createSubscription(1, { ...GOOGLE, label: 'Home wifi', isEssential: true });
+		m.subs.createSubscription(1, { ...GOOGLE, label: 'Netflix' });
 
-		const cull = m.subs.cullList('2026-08-23');
+		const cull = m.subs.cullList(1, '2026-08-23');
 
 		// "Have you used your home internet lately" is not a question.
 		expect(cull.map((r) => r.sub.label)).toEqual(['Netflix']);
-		expect(m.subs.commitmentsByKind().essential).toHaveLength(1);
+		expect(m.subs.commitmentsByKind(1).essential).toHaveLength(1);
 	});
 });
 
@@ -359,10 +359,10 @@ describe('the Bills allocation tracks changes mid-period', () => {
 				 VALUES (1,'2026-08-23','2026-08-29',7,100000,12143,15,0,?)`
 			)
 			.run('2026-08-23T00:00:00.000Z');
-		const period = rollover.openPeriodOn('2026-08-24')!;
+		const period = rollover.openPeriodOn(1, '2026-08-24')!;
 
-		m.subs.createSubscription({ ...GOOGLE, label: 'Wifi', amountMinor: 75_000, trialEndsOn: null });
-		alloc.ensureAllocations(period, '2026-08-24');
+		m.subs.createSubscription(1, { ...GOOGLE, label: 'Wifi', amountMinor: 75_000, trialEndsOn: null });
+		alloc.ensureAllocations(1, period, '2026-08-24');
 
 		const billsId = (
 			m.sqlite.prepare(`SELECT id FROM account WHERE kind='bills'`).get() as { id: number }
@@ -378,16 +378,16 @@ describe('the Bills allocation tracks changes mid-period', () => {
 
 		// A second commitment lands mid-week. The transfer has not been made, so
 		// the figure must follow — otherwise the page and the money map disagree.
-		m.subs.createSubscription({ ...GOOGLE, label: 'ChatGPT', amountMinor: 110_000, trialEndsOn: null });
-		alloc.ensureAllocations(period, '2026-08-24');
+		m.subs.createSubscription(1, { ...GOOGLE, label: 'ChatGPT', amountMinor: 110_000, trialEndsOn: null });
+		alloc.ensureAllocations(1, period, '2026-08-24');
 		expect(read()).toBe(42_546);
 
 		// Once the money has actually moved, the row is history, not a plan.
 		m.sqlite
 			.prepare(`UPDATE allocation SET executed_at=? WHERE account_id=?`)
 			.run('2026-08-24T10:00:00.000Z', billsId);
-		m.subs.createSubscription({ ...GOOGLE, label: 'Another', amountMinor: 50_000, trialEndsOn: null });
-		alloc.ensureAllocations(period, '2026-08-24');
+		m.subs.createSubscription(1, { ...GOOGLE, label: 'Another', amountMinor: 50_000, trialEndsOn: null });
+		alloc.ensureAllocations(1, period, '2026-08-24');
 		expect(read()).toBe(42_546);
 	});
 });
@@ -396,12 +396,12 @@ describe('editing a commitment', () => {
 	const base = { ...GOOGLE, leadDays: 30 };
 
 	it('re-arms the warnings when the deadline moves', () => {
-		const id = m.subs.createSubscription(base);
-		m.subs.recordAlert(id, 2);
-		expect(m.subs.getSubscription(id)!.alertStage).toBe(2);
+		const id = m.subs.createSubscription(1, base);
+		m.subs.recordAlert(1, id, 2);
+		expect(m.subs.getSubscription(1, id)!.alertStage).toBe(2);
 
 		// You discover the trial actually runs to December, not August.
-		m.subs.updateSubscription(id, {
+		m.subs.updateSubscription(1, id, {
 			...base,
 			trialEndsOn: '2027-12-01',
 			cancelByOn: '2027-12-01',
@@ -410,61 +410,61 @@ describe('editing a commitment', () => {
 
 		// The warnings already sent described a date that no longer exists, so
 		// they cannot count as having warned you about the new one.
-		expect(m.subs.getSubscription(id)!.alertStage).toBe(0);
-		expect(m.subs.pendingAlerts('2027-11-05')).toHaveLength(1);
+		expect(m.subs.getSubscription(1, id)!.alertStage).toBe(0);
+		expect(m.subs.pendingAlerts(1, '2027-11-05')).toHaveLength(1);
 	});
 
 	it('does NOT re-arm when only the label or price changes', () => {
-		const id = m.subs.createSubscription(base);
-		m.subs.recordAlert(id, 1);
+		const id = m.subs.createSubscription(1, base);
+		m.subs.recordAlert(1, id, 1);
 
-		m.subs.updateSubscription(id, { ...base, label: 'Google AI Pro', amountMinor: 39_900 });
+		m.subs.updateSubscription(1, id, { ...base, label: 'Google AI Pro', amountMinor: 39_900 });
 
 		// Fixing a typo must not re-nag about a decision already surfaced.
-		expect(m.subs.getSubscription(id)!.alertStage).toBe(1);
-		expect(m.subs.getSubscription(id)!.label).toBe('Google AI Pro');
-		expect(m.subs.getSubscription(id)!.amountMinor).toBe(39_900);
+		expect(m.subs.getSubscription(1, id)!.alertStage).toBe(1);
+		expect(m.subs.getSubscription(1, id)!.label).toBe('Google AI Pro');
+		expect(m.subs.getSubscription(1, id)!.amountMinor).toBe(39_900);
 	});
 
 	it('drops the deadline and the alerts when marked non-negotiable', () => {
-		const id = m.subs.createSubscription(base);
-		m.subs.updateSubscription(id, { ...base, cancelByOn: null, isEssential: true });
+		const id = m.subs.createSubscription(1, base);
+		m.subs.updateSubscription(1, id, { ...base, cancelByOn: null, isEssential: true });
 
-		const sub = m.subs.getSubscription(id)!;
+		const sub = m.subs.getSubscription(1, id)!;
 		expect(sub.isEssential).toBe(1);
 		expect(sub.cancelByOn).toBeNull();
-		expect(m.subs.pendingAlerts('2027-08-01')).toEqual([]);
+		expect(m.subs.pendingAlerts(1, '2027-08-01')).toEqual([]);
 		// And it leaves the cull, which only hunts what can be cancelled.
-		expect(m.subs.cullList('2027-08-01')).toEqual([]);
+		expect(m.subs.cullList(1, '2027-08-01')).toEqual([]);
 	});
 
 	it('changes what the split reserves', () => {
-		const id = m.subs.createSubscription({ ...base, trialEndsOn: null, amountMinor: 75_000 });
-		expect(m.subs.commitmentsPerPeriod(7, '2026-08-24')).toBe(17_248);
+		const id = m.subs.createSubscription(1, { ...base, trialEndsOn: null, amountMinor: 75_000 });
+		expect(m.subs.commitmentsPerPeriod(1, 7, '2026-08-24')).toBe(17_248);
 
-		m.subs.updateSubscription(id, { ...base, trialEndsOn: null, amountMinor: 150_000 });
-		expect(m.subs.commitmentsPerPeriod(7, '2026-08-24')).toBe(34_497);
+		m.subs.updateSubscription(1, id, { ...base, trialEndsOn: null, amountMinor: 150_000 });
+		expect(m.subs.commitmentsPerPeriod(1, 7, '2026-08-24')).toBe(34_497);
 	});
 
 	it('restores something ended by mistake', () => {
-		const id = m.subs.createSubscription({ ...base, trialEndsOn: null });
-		m.subs.cancelSubscription(id);
-		expect(m.subs.listSubscriptions()).toHaveLength(0);
+		const id = m.subs.createSubscription(1, { ...base, trialEndsOn: null });
+		m.subs.cancelSubscription(1, id);
+		expect(m.subs.listSubscriptions(1)).toHaveLength(0);
 
-		m.subs.restoreSubscription(id);
-		expect(m.subs.listSubscriptions()).toHaveLength(1);
-		expect(m.subs.getSubscription(id)!.cancelledAt).toBeNull();
+		m.subs.restoreSubscription(1, id);
+		expect(m.subs.listSubscriptions(1)).toHaveLength(1);
+		expect(m.subs.getSubscription(1, id)!.cancelledAt).toBeNull();
 	});
 
 	it('ignores an edit to a row that does not exist', () => {
-		expect(() => m.subs.updateSubscription(9999, base)).not.toThrow();
+		expect(() => m.subs.updateSubscription(1, 9999, base)).not.toThrow();
 	});
 });
 
 describe('the Today horizon', () => {
 	it('withholds the amount — Spec §4.2 applies to this surface too', () => {
-		m.subs.createSubscription(GOOGLE);
-		const h = m.subs.subscriptionHorizon('2027-08-01')!;
+		m.subs.createSubscription(1, GOOGLE);
+		const h = m.subs.subscriptionHorizon(1, '2027-08-01')!;
 
 		expect(h.daysLeft).toBe(22);
 		expect(h.isTrial).toBe(true);
@@ -473,13 +473,13 @@ describe('the Today horizon', () => {
 	});
 
 	it('shows nothing while the deadline is still far out', () => {
-		m.subs.createSubscription(GOOGLE);
-		expect(m.subs.subscriptionHorizon('2026-08-23')).toBeNull();
+		m.subs.createSubscription(1, GOOGLE);
+		expect(m.subs.subscriptionHorizon(1, '2026-08-23')).toBeNull();
 	});
 
 	it('picks the most urgent deadline when several are live', () => {
-		m.subs.createSubscription({ ...GOOGLE, label: 'far', cancelByOn: '2027-08-20' });
-		m.subs.createSubscription({ ...GOOGLE, label: 'near', cancelByOn: '2027-08-05' });
-		expect(m.subs.subscriptionHorizon('2027-08-01')!.label).toBe('near');
+		m.subs.createSubscription(1, { ...GOOGLE, label: 'far', cancelByOn: '2027-08-20' });
+		m.subs.createSubscription(1, { ...GOOGLE, label: 'near', cancelByOn: '2027-08-05' });
+		expect(m.subs.subscriptionHorizon(1, '2027-08-01')!.label).toBe('near');
 	});
 });

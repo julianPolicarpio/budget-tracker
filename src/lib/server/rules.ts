@@ -11,7 +11,7 @@
  */
 
 import { and, asc, desc, eq, isNull, lte, sql } from 'drizzle-orm';
-import { db, schema } from './db';
+import { forUser, schema } from './db';
 import type { Rule, WaitItem } from './db/schema';
 
 /** Rule 4: wait this long before buying anything over the daily allowance. */
@@ -26,10 +26,12 @@ export const RULE_CATEGORIES = [
 	{ key: 'motivation', label: 'Motivation' }
 ] as const;
 
-export function listRules(): Rule[] {
+export function listRules(userId: number): Rule[] {
+	const { db, owns } = forUser(userId);
 	return db
 		.select()
 		.from(schema.rule)
+		.where(owns(schema.rule))
 		.orderBy(asc(schema.rule.sortOrder), asc(schema.rule.id))
 		.all();
 }
@@ -39,96 +41,118 @@ export function listRules(): Rule[] {
  * which ones worked and rewrite the ones that did not — a rule that never fires
  * usually has a cue that is too vague to detect.
  */
-export function fireRule(id: number, now: Date = new Date()): void {
+export function fireRule(userId: number, id: number, now: Date = new Date()): void {
+	const { db, owns } = forUser(userId);
 	db.update(schema.rule)
 		.set({
 			firedCount: sql`${schema.rule.firedCount} + 1`,
 			lastFired: now.toISOString()
 		})
-		.where(eq(schema.rule.id, id))
+		.where(and(owns(schema.rule), eq(schema.rule.id, id)))
 		.run();
 }
 
 export function upsertRule(
+	userId: number,
 	r: { id?: number; cue: string; action: string; category: Rule['category'] },
 	now: Date = new Date()
 ): void {
 	void now;
+	const { db, owns } = forUser(userId);
 	if (r.id) {
 		db.update(schema.rule)
 			.set({ cue: r.cue, action: r.action, category: r.category })
-			.where(eq(schema.rule.id, r.id))
+			.where(and(owns(schema.rule), eq(schema.rule.id, r.id)))
 			.run();
 		return;
 	}
 	db.insert(schema.rule)
-		.values({ ...r, sortOrder: 99 })
+		.values({ ...r, sortOrder: 99, userId })
 		.run();
 }
 
-export function setRuleActive(id: number, active: boolean): void {
+export function setRuleActive(userId: number, id: number, active: boolean): void {
+	const { db, owns } = forUser(userId);
 	db.update(schema.rule)
 		.set({ active: active ? 1 : 0 })
-		.where(eq(schema.rule.id, id))
+		.where(and(owns(schema.rule), eq(schema.rule.id, id)))
 		.run();
 }
 
 // ─── The 72-hour list ─────────────────────────────────────────────────────
 
 export function addWaitItem(
+	userId: number,
 	label: string,
 	amountMinor: number | null,
 	now: Date = new Date()
 ): void {
+	const { db } = forUser(userId);
 	db.insert(schema.waitItem)
 		.values({
 			label,
 			amountMinor,
 			addedAt: now.toISOString(),
-			ripeAt: new Date(now.getTime() + WAIT_HOURS * 3_600_000).toISOString()
+			ripeAt: new Date(now.getTime() + WAIT_HOURS * 3_600_000).toISOString(),
+			userId
 		})
 		.run();
 }
 
 /** Items whose 72 hours are up and which are still unresolved. */
-export function ripeItems(now: Date = new Date()): WaitItem[] {
-	return db
-		.select()
-		.from(schema.waitItem)
-		.where(and(isNull(schema.waitItem.resolvedAt), lte(schema.waitItem.ripeAt, now.toISOString())))
-		.orderBy(asc(schema.waitItem.ripeAt))
-		.all();
-}
-
-export function waitingItems(now: Date = new Date()): WaitItem[] {
+export function ripeItems(userId: number, now: Date = new Date()): WaitItem[] {
+	const { db, owns } = forUser(userId);
 	return db
 		.select()
 		.from(schema.waitItem)
 		.where(
-			and(isNull(schema.waitItem.resolvedAt), sql`${schema.waitItem.ripeAt} > ${now.toISOString()}`)
+			and(
+				owns(schema.waitItem),
+				isNull(schema.waitItem.resolvedAt),
+				lte(schema.waitItem.ripeAt, now.toISOString())
+			)
 		)
 		.orderBy(asc(schema.waitItem.ripeAt))
 		.all();
 }
 
-export function resolvedItems(limit = 30): WaitItem[] {
+export function waitingItems(userId: number, now: Date = new Date()): WaitItem[] {
+	const { db, owns } = forUser(userId);
 	return db
 		.select()
 		.from(schema.waitItem)
-		.where(sql`${schema.waitItem.resolvedAt} IS NOT NULL`)
+		.where(
+			and(
+				owns(schema.waitItem),
+				isNull(schema.waitItem.resolvedAt),
+				sql`${schema.waitItem.ripeAt} > ${now.toISOString()}`
+			)
+		)
+		.orderBy(asc(schema.waitItem.ripeAt))
+		.all();
+}
+
+export function resolvedItems(userId: number, limit = 30): WaitItem[] {
+	const { db, owns } = forUser(userId);
+	return db
+		.select()
+		.from(schema.waitItem)
+		.where(and(owns(schema.waitItem), sql`${schema.waitItem.resolvedAt} IS NOT NULL`))
 		.orderBy(desc(schema.waitItem.resolvedAt))
 		.limit(limit)
 		.all();
 }
 
 export function resolveWaitItem(
+	userId: number,
 	id: number,
 	outcome: 'bought' | 'dropped',
 	now: Date = new Date()
 ): void {
+	const { db, owns } = forUser(userId);
 	db.update(schema.waitItem)
 		.set({ outcome, resolvedAt: now.toISOString() })
-		.where(eq(schema.waitItem.id, id))
+		.where(and(owns(schema.waitItem), eq(schema.waitItem.id, id)))
 		.run();
 }
 
@@ -136,11 +160,12 @@ export function resolveWaitItem(
  * The drop rate. Seeing "68% of items dropped" *is* the argument for the rule —
  * most things die on the list, and the ones that survive you buy guilt-free.
  */
-export function dropRateBp(): number | null {
+export function dropRateBp(userId: number): number | null {
+	const { db, owns } = forUser(userId);
 	const rows = db
 		.select({ outcome: schema.waitItem.outcome })
 		.from(schema.waitItem)
-		.where(sql`${schema.waitItem.resolvedAt} IS NOT NULL`)
+		.where(and(owns(schema.waitItem), sql`${schema.waitItem.resolvedAt} IS NOT NULL`))
 		.all();
 	if (rows.length === 0) return null;
 

@@ -1,5 +1,5 @@
 import { and, asc, eq, isNotNull } from 'drizzle-orm';
-import { db, schema } from '$lib/server/db';
+import { forUser, schema } from '$lib/server/db';
 import { loadSettings } from '$lib/server/today';
 import { localToday, addDays } from '$lib/server/clock';
 import { weekOf } from '$lib/server/week';
@@ -9,10 +9,11 @@ import type { PageServerLoad } from './$types';
 
 const WEEKS = 12;
 
-export const load: PageServerLoad = () => {
-	const settings = loadSettings();
+export const load: PageServerLoad = ({ locals }) => {
+	const settings = loadSettings(locals.userId);
 	if (!settings) return { ready: false as const };
 
+	const { db, owns } = forUser(locals.userId);
 	const today = localToday(settings.timezone);
 
 	// The five metrics come off the completed review rows — the artefact is the
@@ -20,7 +21,7 @@ export const load: PageServerLoad = () => {
 	const reviews = db
 		.select()
 		.from(schema.review)
-		.where(and(eq(schema.review.kind, 'weekly'), isNotNull(schema.review.completedAt)))
+		.where(and(owns(schema.review), eq(schema.review.kind, 'weekly'), isNotNull(schema.review.completedAt)))
 		.orderBy(asc(schema.review.endsOn))
 		.all()
 		.slice(-WEEKS);
@@ -31,7 +32,7 @@ export const load: PageServerLoad = () => {
 	const heatmap = Array.from({ length: WEEKS }, (_, i) => {
 		const start = addDays(thisWeek.startsOn, -7 * (WEEKS - 1 - i));
 		const week = weekOf(start, settings.weekStartsOn);
-		const actuals = weekActuals({ from: week.startsOn, to: week.endsOn });
+		const actuals = weekActuals(locals.userId, { from: week.startsOn, to: week.endsOn });
 		return {
 			label: week.label,
 			endsOn: week.endsOn,

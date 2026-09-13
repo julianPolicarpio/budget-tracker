@@ -5,11 +5,11 @@ import { topThree } from '$lib/server/metrics';
 import type { RequestHandler } from './$types';
 
 /** GET /api/review/2026-W33/summary — the shareable one-liner and its metrics. */
-export const GET: RequestHandler = ({ params }) => {
-	const settings = loadSettings();
+export const GET: RequestHandler = ({ params, locals }) => {
+	const settings = loadSettings(locals.userId);
 	if (!settings) error(409, 'Split is not initialised yet.');
 
-	const review = reviewByLabel(params.label);
+	const review = reviewByLabel(locals.userId, params.label);
 	if (!review) error(404, `No review for ${params.label}`);
 
 	return json({
@@ -26,7 +26,7 @@ export const GET: RequestHandler = ({ params }) => {
 			// Null, not zero: these need subsystems that arrive in Phase 3.
 			coverageRatioBp: review.coverageRatioBp,
 			saveRateBp: review.saveRateBp,
-			deltaVsPrior: deltaVsPrior(review, priorReview(review))
+			deltaVsPrior: deltaVsPrior(review, priorReview(locals.userId, review))
 		},
 		balances: {
 			spendMinor: review.spendBalanceMinor,
@@ -34,6 +34,6 @@ export const GET: RequestHandler = ({ params }) => {
 			bufferMinor: review.bufferMinor,
 			debtTotalMinor: review.debtTotalMinor
 		},
-		topThree: topThree({ from: review.startsOn, to: review.endsOn })
+		topThree: topThree(locals.userId, { from: review.startsOn, to: review.endsOn })
 	});
 };

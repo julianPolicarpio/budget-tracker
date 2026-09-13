@@ -14,9 +14,13 @@ function csvEscape(v: unknown): string {
 	return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-export const GET: RequestHandler = () => {
-	const settings = sqlite.prepare('SELECT minor_units AS m FROM settings WHERE id = 1').get() as
-		{ m: number } | undefined;
+export const GET: RequestHandler = ({ locals }) => {
+	// `WHERE id = 1` was right while settings was a singleton pinned by a CHECK.
+	// Migration 0008 made it one row per person, so the literal now reads the
+	// owner's currency scale no matter who is asking.
+	const settings = sqlite
+		.prepare('SELECT minor_units AS m FROM settings WHERE user_id = ?')
+		.get(locals.userId) as { m: number } | undefined;
 	const divisor = 10 ** (settings?.m ?? 2);
 	const major = (minor: number | null) =>
 		minor === null ? '' : (minor / divisor).toFixed(settings?.m ?? 2);
@@ -30,9 +34,10 @@ export const GET: RequestHandler = () => {
 			`SELECT t.spent_on, t.amount_minor, t.category, t.planned, t.entered_at,
 			        t.amount_local_minor, t.fx_rate_used, tr.label AS trip_label
 			 FROM txn t LEFT JOIN trip tr ON tr.id = t.trip_id
+			 WHERE t.user_id = ?
 			 ORDER BY t.spent_on, t.id`
 		)
-		.all() as Record<string, string | number | null>[];
+		.all(locals.userId) as Record<string, string | number | null>[];
 
 	for (const t of txns) {
 		lines.push(
@@ -58,8 +63,10 @@ export const GET: RequestHandler = () => {
 			'buffer_weeks,coverage_ratio,log_adherence_pct,streak,shared_at,summary_line'
 	);
 	const reviews = sqlite
-		.prepare(`SELECT * FROM review WHERE completed_at IS NOT NULL ORDER BY ends_on`)
-		.all() as Record<string, string | number | null>[];
+		.prepare(
+			`SELECT * FROM review WHERE completed_at IS NOT NULL AND user_id = ? ORDER BY ends_on`
+		)
+		.all(locals.userId) as Record<string, string | number | null>[];
 
 	for (const r of reviews) {
 		lines.push(

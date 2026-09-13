@@ -16,7 +16,7 @@
  */
 
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
-import { db, schema } from './db';
+import { forUser, schema } from './db';
 import { addDays, daysBetween } from './clock';
 import { paddedAmount } from './irregulars';
 import { IouRequired, accountByKind, recordTransfer } from './accounts';
@@ -40,36 +40,53 @@ export class TripTooLong extends Error {
 	}
 }
 
-export function activeTrip(): Trip | null {
-	return db.select().from(schema.trip).where(eq(schema.trip.status, 'active')).get() ?? null;
+export function activeTrip(userId: number): Trip | null {
+	const { db, owns } = forUser(userId);
+	return (
+		db
+			.select()
+			.from(schema.trip)
+			.where(and(owns(schema.trip), eq(schema.trip.status, 'active')))
+			.get() ?? null
+	);
 }
 
-export function tripById(id: number): Trip | null {
-	return db.select().from(schema.trip).where(eq(schema.trip.id, id)).get() ?? null;
+export function tripById(userId: number, id: number): Trip | null {
+	const { db, owns } = forUser(userId);
+	return (
+		db
+			.select()
+			.from(schema.trip)
+			.where(and(owns(schema.trip), eq(schema.trip.id, id)))
+			.get() ?? null
+	);
 }
 
-export function listTrips(): Trip[] {
-	return db.select().from(schema.trip).orderBy(desc(schema.trip.startsOn)).all();
+export function listTrips(userId: number): Trip[] {
+	const { db, owns } = forUser(userId);
+	return db.select().from(schema.trip).where(owns(schema.trip)).orderBy(desc(schema.trip.startsOn)).all();
 }
 
 /** Σ of what has been logged against a trip, in home currency. */
-export function tripSpentMinor(tripId: number): number {
+export function tripSpentMinor(userId: number, tripId: number): number {
+	const { db, owns } = forUser(userId);
 	return (
 		db
 			.select({ n: sql<number>`coalesce(sum(${schema.txn.amountMinor}), 0)` })
 			.from(schema.txn)
-			.where(eq(schema.txn.tripId, tripId))
+			.where(and(owns(schema.txn), eq(schema.txn.tripId, tripId)))
 			.get()?.n ?? 0
 	);
 }
 
 /** Σ in the trip's own currency — what the user actually typed. */
-export function tripSpentLocalMinor(tripId: number): number {
+export function tripSpentLocalMinor(userId: number, tripId: number): number {
+	const { db, owns } = forUser(userId);
 	return (
 		db
 			.select({ n: sql<number>`coalesce(sum(${schema.txn.amountLocalMinor}), 0)` })
 			.from(schema.txn)
-			.where(eq(schema.txn.tripId, tripId))
+			.where(and(owns(schema.txn), eq(schema.txn.tripId, tripId)))
 			.get()?.n ?? 0
 	);
 }
@@ -100,7 +117,8 @@ export interface DeclareInput {
  * emotionally but not financially, and that gap is where the cost goes
  * unfunded.
  */
-export function declareTrip(input: DeclareInput, now: Date = new Date()): Trip {
+export function declareTrip(userId: number, input: DeclareInput, now: Date = new Date()): Trip {
+	const { db, owns } = forUser(userId);
 	const days = daysBetween(input.startsOn, input.endsOn) + 1;
 	if (days > MAX_TRIP_DAYS) throw new TripTooLong(days);
 	if (input.estimateMinor <= 0) throw new Error('The estimate must be above zero');
@@ -121,7 +139,8 @@ export function declareTrip(input: DeclareInput, now: Date = new Date()): Trip {
 				nextDueOn: input.startsOn,
 				category: 'other',
 				paddingPct,
-				createdAt: now.toISOString()
+				createdAt: now.toISOString(),
+				userId
 			})
 			.returning({ id: schema.irregular.id })
 			.get().id;
@@ -132,7 +151,8 @@ export function declareTrip(input: DeclareInput, now: Date = new Date()): Trip {
 				irregularId,
 				dueOn: input.startsOn,
 				expectedMinor: envelopeMinor,
-				status: 'projected'
+				status: 'projected',
+				userId
 			})
 			.returning({ id: schema.irregularInstance.id })
 			.get().id;
@@ -151,12 +171,17 @@ export function declareTrip(input: DeclareInput, now: Date = new Date()): Trip {
 				envelopeMinor,
 				irregularInstanceId: instanceId,
 				status: 'planned',
-				createdAt: now.toISOString()
+				createdAt: now.toISOString(),
+				userId
 			})
 			.returning({ id: schema.trip.id })
 			.get().id;
 
-		return tx.select().from(schema.trip).where(eq(schema.trip.id, id)).get()!;
+		return tx
+			.select()
+			.from(schema.trip)
+			.where(and(owns(schema.trip), eq(schema.trip.id, id)))
+			.get()!;
 	});
 }
 
@@ -175,11 +200,11 @@ export interface FundingCheck {
  * shortfall quietly consume the next two periods of Spend is the default
  * failure this check exists to prevent.
  */
-export function fundingCheck(trip: Trip, today: string): FundingCheck {
+export function fundingCheck(userId: number, trip: Trip, today: string): FundingCheck {
 	const daysToDeparture = daysBetween(today, trip.startsOn);
 	const fundedMinor = Math.min(
 		trip.envelopeMinor,
-		(accountByKind('irregulars')?.balanceMinor ?? 0) + trip.bufferDrawMinor
+		(accountByKind(userId, 'irregulars')?.balanceMinor ?? 0) + trip.bufferDrawMinor
 	);
 
 	return {
@@ -196,19 +221,21 @@ export function fundingCheck(trip: Trip, today: string): FundingCheck {
  * exception, so this throws without a note.
  */
 export function coverShortfall(
+	userId: number,
 	tripId: number,
 	amountMinor: number,
 	iouReason: string,
 	iouRepayBy: string | null,
 	movedOn: string
 ): void {
-	const buffer = accountByKind('buffer');
-	const irregulars = accountByKind('irregulars');
+	const { db, owns } = forUser(userId);
+	const buffer = accountByKind(userId, 'buffer');
+	const irregulars = accountByKind(userId, 'irregulars');
 	if (!buffer || !irregulars) throw new Error('Accounts are not set up');
 	if (!iouReason.trim()) throw new IouRequired(buffer.name);
 
 	db.transaction((tx) => {
-		recordTransfer({
+		recordTransfer(userId, {
 			fromAccountId: buffer.id,
 			toAccountId: irregulars.id,
 			amountMinor,
@@ -218,21 +245,25 @@ export function coverShortfall(
 		});
 		tx.update(schema.trip)
 			.set({ bufferDrawMinor: sql`${schema.trip.bufferDrawMinor} + ${amountMinor}` })
-			.where(eq(schema.trip.id, tripId))
+			.where(and(owns(schema.trip), eq(schema.trip.id, tripId)))
 			.run();
 	});
 }
 
 /** Activate on `starts_on`. The day boundary moves to trip_tz from here. */
-export function activateTrip(tripId: number): Trip {
-	const already = activeTrip();
+export function activateTrip(userId: number, tripId: number): Trip {
+	const { db, owns } = forUser(userId);
+	const already = activeTrip(userId);
 	if (already && already.id !== tripId) {
 		throw new Error(
 			`"${already.label}" is still active. Overlapping trips are a data-entry error, not a feature.`
 		);
 	}
-	db.update(schema.trip).set({ status: 'active' }).where(eq(schema.trip.id, tripId)).run();
-	return tripById(tripId)!;
+	db.update(schema.trip)
+		.set({ status: 'active' })
+		.where(and(owns(schema.trip), eq(schema.trip.id, tripId)))
+		.run();
+	return tripById(userId, tripId)!;
 }
 
 /**
@@ -241,10 +272,11 @@ export function activateTrip(tripId: number): Trip {
  * the source of truth; getting this backwards means a rate correction silently
  * rewrites history.
  */
-export function setRate(tripId: number, fxRateToHome: number, homeMinorUnits: number): void {
+export function setRate(userId: number, tripId: number, fxRateToHome: number, homeMinorUnits: number): void {
 	if (fxRateToHome <= 0) throw new Error('The rate must be above zero');
 
-	const trip = tripById(tripId);
+	const { db, owns } = forUser(userId);
+	const trip = tripById(userId, tripId);
 	if (!trip) throw new Error(`No trip ${tripId}`);
 
 	// The scale factor is NOT optional. ¥3,800 is 3800 minor units at zero
@@ -255,14 +287,17 @@ export function setRate(tripId: number, fxRateToHome: number, homeMinorUnits: nu
 	const scale = 10 ** (homeMinorUnits - trip.localMinorUnits);
 
 	db.transaction((tx) => {
-		tx.update(schema.trip).set({ fxRateToHome }).where(eq(schema.trip.id, tripId)).run();
+		tx.update(schema.trip)
+			.set({ fxRateToHome })
+			.where(and(owns(schema.trip), eq(schema.trip.id, tripId)))
+			.run();
 
 		tx.update(schema.txn)
 			.set({
 				amountMinor: sql`cast(round(${schema.txn.amountLocalMinor} * ${fxRateToHome} * ${scale}) as integer)`,
 				fxRateUsed: fxRateToHome
 			})
-			.where(eq(schema.txn.tripId, tripId))
+			.where(and(owns(schema.txn), eq(schema.txn.tripId, tripId)))
 			.run();
 	});
 }
@@ -302,16 +337,17 @@ export interface Settlement {
  * second tunes next trip's rate — and conflating them into one number means
  * neither improves.
  */
-export function settleTrip(tripId: number, actualMinor: number, settledOn: string): Settlement {
-	const trip = tripById(tripId);
+export function settleTrip(userId: number, tripId: number, actualMinor: number, settledOn: string): Settlement {
+	const { db, owns } = forUser(userId);
+	const trip = tripById(userId, tripId);
 	if (!trip) throw new Error(`No trip ${tripId}`);
 
-	const loggedMinor = tripSpentMinor(tripId);
+	const loggedMinor = tripSpentMinor(userId, tripId);
 
 	db.transaction((tx) => {
 		tx.update(schema.trip)
 			.set({ status: 'settled', loggedTotalMinor: loggedMinor, actualMinor, settledOn })
-			.where(eq(schema.trip.id, tripId))
+			.where(and(owns(schema.trip), eq(schema.trip.id, tripId)))
 			.run();
 
 		// The linked irregular instance settles at what the trip actually cost,
@@ -319,7 +355,7 @@ export function settleTrip(tripId: number, actualMinor: number, settledOn: strin
 		if (trip.irregularInstanceId) {
 			tx.update(schema.irregularInstance)
 				.set({ status: 'settled', actualMinor, settledOn })
-				.where(eq(schema.irregularInstance.id, trip.irregularInstanceId))
+				.where(and(owns(schema.irregularInstance), eq(schema.irregularInstance.id, trip.irregularInstanceId)))
 				.run();
 		}
 
@@ -328,7 +364,7 @@ export function settleTrip(tripId: number, actualMinor: number, settledOn: strin
 				balanceMinor: sql`max(0, ${schema.account.balanceMinor} - ${actualMinor})`,
 				balanceAsOf: settledOn
 			})
-			.where(eq(schema.account.kind, 'irregulars'))
+			.where(and(owns(schema.account), eq(schema.account.kind, 'irregulars')))
 			.run();
 	});
 
@@ -341,17 +377,25 @@ export function settleTrip(tripId: number, actualMinor: number, settledOn: strin
 	};
 }
 
-export function cancelTrip(tripId: number): void {
+export function cancelTrip(userId: number, tripId: number): void {
+	const { db, owns } = forUser(userId);
 	db.transaction((tx) => {
-		const trip = tx.select().from(schema.trip).where(eq(schema.trip.id, tripId)).get();
+		const trip = tx
+			.select()
+			.from(schema.trip)
+			.where(and(owns(schema.trip), eq(schema.trip.id, tripId)))
+			.get();
 		if (!trip) return;
 
-		tx.update(schema.trip).set({ status: 'cancelled' }).where(eq(schema.trip.id, tripId)).run();
+		tx.update(schema.trip)
+			.set({ status: 'cancelled' })
+			.where(and(owns(schema.trip), eq(schema.trip.id, tripId)))
+			.run();
 
 		if (trip.irregularInstanceId) {
 			tx.update(schema.irregularInstance)
 				.set({ status: 'skipped' })
-				.where(eq(schema.irregularInstance.id, trip.irregularInstanceId))
+				.where(and(owns(schema.irregularInstance), eq(schema.irregularInstance.id, trip.irregularInstanceId)))
 				.run();
 		}
 	});
@@ -364,14 +408,15 @@ export interface BurndownPoint {
 }
 
 /** Actual cumulative spend against the straight-line pace. Two series, one unit. */
-export function burndown(trip: Trip, today: string): BurndownPoint[] {
+export function burndown(userId: number, trip: Trip, today: string): BurndownPoint[] {
+	const { db, owns } = forUser(userId);
 	const perDay = db
 		.select({
 			spentOn: schema.txn.spentOn,
 			minor: sql<number>`sum(${schema.txn.amountMinor})`
 		})
 		.from(schema.txn)
-		.where(eq(schema.txn.tripId, trip.id))
+		.where(and(owns(schema.txn), eq(schema.txn.tripId, trip.id)))
 		.groupBy(schema.txn.spentOn)
 		.orderBy(asc(schema.txn.spentOn))
 		.all();
@@ -397,10 +442,13 @@ export function burndown(trip: Trip, today: string): BurndownPoint[] {
 }
 
 /** Trips whose window has arrived but which are still `planned`. */
-export function tripsAwaitingActivation(today: string): Trip[] {
+export function tripsAwaitingActivation(userId: number, today: string): Trip[] {
+	const { db, owns } = forUser(userId);
 	return db
 		.select()
 		.from(schema.trip)
-		.where(and(eq(schema.trip.status, 'planned'), sql`${schema.trip.startsOn} <= ${today}`))
+		.where(
+			and(owns(schema.trip), eq(schema.trip.status, 'planned'), sql`${schema.trip.startsOn} <= ${today}`)
+		)
 		.all();
 }

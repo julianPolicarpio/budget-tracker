@@ -1,6 +1,6 @@
 import { fail, redirect, type Actions } from '@sveltejs/kit';
-import { asc, desc, eq, isNotNull, isNull } from 'drizzle-orm';
-import { db, schema } from '$lib/server/db';
+import { and, asc, desc, eq, isNotNull, isNull } from 'drizzle-orm';
+import { forUser, schema } from '$lib/server/db';
 import { loadSettings } from '$lib/server/today';
 import { localToday } from '$lib/server/clock';
 import { openPeriodOn } from '$lib/server/rollover';
@@ -8,20 +8,21 @@ import { parseMoney } from '$lib/money';
 import { payoffPlan } from '$lib/server/payoff';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = ({ url }) => {
-	const settings = loadSettings();
+export const load: PageServerLoad = ({ url, locals }) => {
+	const settings = loadSettings(locals.userId);
 	if (!settings) return { ready: false as const };
 
+	const { db, owns } = forUser(locals.userId);
 	const today = localToday(settings.timezone);
 	const debts = db
 		.select()
 		.from(schema.debt)
-		.where(isNull(schema.debt.closedOn))
+		.where(and(owns(schema.debt), isNull(schema.debt.closedOn)))
 		.orderBy(desc(schema.debt.aprBp))
 		.all();
 
 	// One period of Spend is the yardstick the switch is priced against.
-	const period = openPeriodOn(today);
+	const period = openPeriodOn(locals.userId, today);
 	const spendAllocationMinor = period?.spendAllocMinor ?? 0;
 
 	const inputs = debts.map((d) => ({
@@ -49,13 +50,14 @@ export const load: PageServerLoad = ({ url }) => {
 		payments: db
 			.select()
 			.from(schema.debtPayment)
+			.where(owns(schema.debtPayment))
 			.orderBy(desc(schema.debtPayment.paidOn))
 			.limit(20)
 			.all(),
 		closed: db
 			.select()
 			.from(schema.debt)
-			.where(isNotNull(schema.debt.closedOn))
+			.where(and(owns(schema.debt), isNotNull(schema.debt.closedOn)))
 			.orderBy(asc(schema.debt.label))
 			.all(),
 		currency: {
@@ -67,8 +69,8 @@ export const load: PageServerLoad = ({ url }) => {
 };
 
 export const actions: Actions = {
-	upsert: async ({ request }) => {
-		const settings = loadSettings();
+	upsert: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
@@ -92,16 +94,22 @@ export const actions: Actions = {
 		const values = { label, balanceMinor, minPaymentMinor, aprBp: Math.round(aprPct * 100) };
 		const id = Number(form.get('id')) || null;
 
+		const { db, owns } = forUser(locals.userId);
 		if (id) {
-			db.update(schema.debt).set(values).where(eq(schema.debt.id, id)).run();
+			db.update(schema.debt)
+				.set(values)
+				.where(and(owns(schema.debt), eq(schema.debt.id, id)))
+				.run();
 		} else {
-			db.insert(schema.debt).values(values).run();
+			db.insert(schema.debt)
+				.values({ ...values, userId: locals.userId })
+				.run();
 		}
 		redirect(303, '/debt');
 	},
 
-	payment: async ({ request }) => {
-		const settings = loadSettings();
+	payment: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
@@ -114,16 +122,23 @@ export const actions: Actions = {
 
 		const paidOn = String(form.get('paidOn') || localToday(settings.timezone));
 
+		const { db, owns } = forUser(locals.userId);
 		db.transaction((tx) => {
-			const d = tx.select().from(schema.debt).where(eq(schema.debt.id, debtId)).get();
+			const d = tx
+				.select()
+				.from(schema.debt)
+				.where(and(owns(schema.debt), eq(schema.debt.id, debtId)))
+				.get();
 			if (!d) return;
 
-			tx.insert(schema.debtPayment).values({ debtId, paidOn, amountMinor }).run();
+			tx.insert(schema.debtPayment)
+				.values({ debtId, paidOn, amountMinor, userId: locals.userId })
+				.run();
 
 			const remaining = Math.max(0, d.balanceMinor - amountMinor);
 			tx.update(schema.debt)
 				.set({ balanceMinor: remaining, closedOn: remaining === 0 ? paidOn : null })
-				.where(eq(schema.debt.id, debtId))
+				.where(and(owns(schema.debt), eq(schema.debt.id, debtId)))
 				.run();
 		});
 

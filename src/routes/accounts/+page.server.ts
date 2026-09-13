@@ -17,23 +17,23 @@ import { checklist, ensureAllocations, executeAllocation } from '$lib/server/all
 import { PHASES, acceptProposal, declineProposal, phaseStatus, setPhase } from '$lib/server/phases';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = () => {
-	const settings = loadSettings();
+export const load: PageServerLoad = ({ locals }) => {
+	const settings = loadSettings(locals.userId);
 	if (!settings) return { ready: false as const };
 
 	const today = localToday(settings.timezone);
-	const period = openPeriodOn(today);
-	if (period) ensureAllocations(period, today);
+	const period = openPeriodOn(locals.userId, today);
+	if (period) ensureAllocations(locals.userId, period, today);
 
 	return {
 		ready: true as const,
 		today,
 		phases: PHASES,
-		phase: phaseStatus(settings, today),
-		accounts: listAccounts(),
-		goals: listGoals(),
-		ious: openIous(today),
-		checklist: period ? checklist(period, today) : [],
+		phase: phaseStatus(locals.userId, settings, today),
+		accounts: listAccounts(locals.userId),
+		goals: listGoals(locals.userId),
+		ious: openIous(locals.userId, today),
+		checklist: period ? checklist(locals.userId, period, today) : [],
 		period,
 		currency: {
 			code: settings.currencyCode,
@@ -44,8 +44,8 @@ export const load: PageServerLoad = () => {
 };
 
 export const actions: Actions = {
-	assertBalance: async ({ request }) => {
-		const settings = loadSettings();
+	assertBalance: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
@@ -55,7 +55,7 @@ export const actions: Actions = {
 		if (!Number.isInteger(accountId)) return fail(400, { error: 'Unknown account.' });
 		if (balanceMinor === null) return fail(400, { error: 'Enter the balance as it reads.' });
 
-		assertBalance(accountId, balanceMinor, localToday(settings.timezone));
+		assertBalance(locals.userId, accountId, balanceMinor, localToday(settings.timezone));
 		redirect(303, '/accounts');
 	},
 
@@ -64,8 +64,8 @@ export const actions: Actions = {
 	 * one-line note. The 422 is not validation theatre — the note is the entire
 	 * mechanism.
 	 */
-	transfer: async ({ request }) => {
-		const settings = loadSettings();
+	transfer: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
@@ -75,7 +75,7 @@ export const actions: Actions = {
 		}
 
 		try {
-			recordTransfer({
+			recordTransfer(locals.userId, {
 				fromAccountId: Number(form.get('fromAccountId')),
 				toAccountId: Number(form.get('toAccountId')),
 				amountMinor,
@@ -91,24 +91,24 @@ export const actions: Actions = {
 		redirect(303, '/accounts');
 	},
 
-	repayIou: async ({ request }) => {
+	repayIou: async ({ request, locals }) => {
 		const form = await request.formData();
 		const id = Number(form.get('id'));
 		if (!Number.isInteger(id)) return fail(400, { error: 'Unknown IOU.' });
-		repayIou(id);
+		repayIou(locals.userId, id);
 		redirect(303, '/accounts');
 	},
 
-	executeMove: async ({ request }) => {
+	executeMove: async ({ request, locals }) => {
 		const form = await request.formData();
 		const id = Number(form.get('id'));
 		if (!Number.isInteger(id)) return fail(400, { error: 'Unknown move.' });
-		executeAllocation(id);
+		executeAllocation(locals.userId, id);
 		redirect(303, '/accounts');
 	},
 
-	upsertGoal: async ({ request }) => {
-		const settings = loadSettings();
+	upsertGoal: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
@@ -122,7 +122,7 @@ export const actions: Actions = {
 		const target = String(form.get('target') ?? '').trim();
 		const saved = String(form.get('saved') ?? '').trim();
 
-		upsertGoal({
+		upsertGoal(locals.userId, {
 			id: Number(form.get('id')) || undefined,
 			accountId: Number(form.get('accountId')),
 			label,
@@ -133,28 +133,28 @@ export const actions: Actions = {
 		redirect(303, '/accounts');
 	},
 
-	acceptPhase: async ({ request }) => {
+	acceptPhase: async ({ request, locals }) => {
 		const form = await request.formData();
-		acceptProposal(Number(form.get('id')));
+		acceptProposal(locals.userId, Number(form.get('id')));
 		redirect(303, '/accounts');
 	},
 
-	declinePhase: async ({ request }) => {
+	declinePhase: async ({ request, locals }) => {
 		const form = await request.formData();
-		declineProposal(Number(form.get('id')));
+		declineProposal(locals.userId, Number(form.get('id')));
 		redirect(303, '/accounts');
 	},
 
 	/** Move phase by hand. A downgrade is a normal event, not a failure. */
-	setPhase: async ({ request }) => {
-		const settings = loadSettings();
+	setPhase: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
 		const phase = Number(form.get('phase'));
 		if (!Number.isInteger(phase)) return fail(400, { error: 'Unknown phase.' });
 
-		setPhase(phase, localToday(settings.timezone));
+		setPhase(locals.userId, phase, localToday(settings.timezone));
 		redirect(303, '/accounts');
 	}
 };

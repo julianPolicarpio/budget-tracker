@@ -1,6 +1,6 @@
 import { fail, redirect, type Actions } from '@sveltejs/kit';
-import { db, schema } from '$lib/server/db';
-import { eq } from 'drizzle-orm';
+import { forUser, schema } from '$lib/server/db';
+import { and, eq } from 'drizzle-orm';
 import { loadSettings } from '$lib/server/today';
 import { localToday, addDays } from '$lib/server/clock';
 import { lastCompleteWeek, weekDays, weekOf } from '$lib/server/week';
@@ -21,14 +21,14 @@ import {
 } from '$lib/server/review';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = ({ url }) => {
-	const settings = loadSettings();
+export const load: PageServerLoad = ({ url, locals }) => {
+	const settings = loadSettings(locals.userId);
 	if (!settings) return { ready: false as const };
 
 	const today = localToday(settings.timezone);
 	const week = lastCompleteWeek(today, settings.weekStartsOn);
-	const review = ensureWeeklyReview(week);
-	const done = stepPayloads(review.id);
+	const review = ensureWeeklyReview(locals.userId, week);
+	const done = stepPayloads(locals.userId, review.id);
 
 	// Resume at the first unfinished step unless the user asked for one.
 	const firstOpen = REVIEW_STEPS.findIndex((s) => !(s.key in done));
@@ -40,9 +40,9 @@ export const load: PageServerLoad = ({ url }) => {
 			: firstOpen + 1;
 
 	const range = { from: week.startsOn, to: week.endsOn };
-	const actuals = weekActuals(range);
-	const prior = priorReview(review);
-	const period = openPeriodOn(today);
+	const actuals = weekActuals(locals.userId, range);
+	const prior = priorReview(locals.userId, review);
+	const period = openPeriodOn(locals.userId, today);
 
 	return {
 		ready: true as const,
@@ -66,8 +66,8 @@ export const load: PageServerLoad = ({ url }) => {
 		delta: deltaVsPrior(review, prior),
 		payloads: done,
 		actuals,
-		topThree: topThree(range),
-		adherenceBp: logAdherenceBp(range),
+		topThree: topThree(locals.userId, range),
+		adherenceBp: logAdherenceBp(locals.userId, range),
 		aheadDays: weekDays(weekOf(addDays(week.endsOn, 1), settings.weekStartsOn)),
 		period,
 		currency: {
@@ -82,18 +82,18 @@ export const load: PageServerLoad = ({ url }) => {
 	};
 };
 
-function requireContext() {
-	const settings = loadSettings();
+function requireContext(userId: number) {
+	const settings = loadSettings(userId);
 	if (!settings) return null;
 	const today = localToday(settings.timezone);
 	const week = lastCompleteWeek(today, settings.weekStartsOn);
-	return { settings, today, week, review: ensureWeeklyReview(week) };
+	return { settings, today, week, review: ensureWeeklyReview(userId, week) };
 }
 
 export const actions: Actions = {
 	/** R1 — the four asserted balances. Typing them is the work (F7). */
-	balances: async ({ request }) => {
-		const ctx = requireContext();
+	balances: async ({ request, locals }) => {
+		const ctx = requireContext(locals.userId);
 		if (!ctx) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
@@ -114,14 +114,14 @@ export const actions: Actions = {
 			if (v !== null && v < 0) return fail(400, { error: `${name} cannot be negative.`, step: 1 });
 		}
 
-		saveBalances(ctx.review.id, values);
-		saveStep(ctx.review.id, 'balances', values);
+		saveBalances(locals.userId, ctx.review.id, values);
+		saveStep(locals.userId, ctx.review.id, 'balances', values);
 		redirect(303, '/review?step=2');
 	},
 
 	/** R2–R4 — acknowledgement steps whose payload is the answers themselves. */
-	step: async ({ request }) => {
-		const ctx = requireContext();
+	step: async ({ request, locals }) => {
+		const ctx = requireContext(locals.userId);
 		if (!ctx) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
@@ -134,7 +134,7 @@ export const actions: Actions = {
 			payload[k] = String(v);
 		}
 
-		saveStep(ctx.review.id, key, payload);
+		saveStep(locals.userId, ctx.review.id, key, payload);
 		const next = Number(form.get('next'));
 		redirect(303, `/review?step=${Number.isInteger(next) ? next : 1}`);
 	},
@@ -144,15 +144,15 @@ export const actions: Actions = {
 	 * open one. A budget you are allowed to update is a budget you do not
 	 * abandon (F5).
 	 */
-	adjust: async ({ request }) => {
-		const ctx = requireContext();
+	adjust: async ({ request, locals }) => {
+		const ctx = requireContext(locals.userId);
 		if (!ctx) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
 		const keep = form.get('keep') === '1';
 
 		if (!keep) {
-			const period = openPeriodOn(ctx.today);
+			const period = openPeriodOn(locals.userId, ctx.today);
 			if (!period) return fail(409, { error: 'No open period to adjust.', step: 5 });
 
 			const alloc = parseMoney(String(form.get('alloc') ?? ''), ctx.settings.minorUnits);
@@ -160,33 +160,38 @@ export const actions: Actions = {
 				return fail(400, { error: 'Enter a Spend allocation above zero.', step: 5 });
 			}
 			if (alloc !== period.spendAllocMinor) {
-				supersedePeriod(period, alloc, ctx.settings);
+				supersedePeriod(locals.userId, period, alloc, ctx.settings);
 			}
 		}
 
-		saveStep(ctx.review.id, 'adjust', { keep });
+		saveStep(locals.userId, ctx.review.id, 'adjust', { keep });
 		redirect(303, '/review?step=6');
 	},
 
 	/** R6 — snapshot the metrics, write the row, generate the one-liner. */
-	complete: async () => {
-		const ctx = requireContext();
+	complete: async ({ locals }) => {
+		const ctx = requireContext(locals.userId);
 		if (!ctx) return fail(409, { error: 'Split is not initialised yet.' });
 
-		saveStep(ctx.review.id, 'send', { completed: true });
-		completeReview(ctx.review, ctx.settings);
+		saveStep(locals.userId, ctx.review.id, 'send', { completed: true });
+		completeReview(locals.userId, ctx.review, ctx.settings);
 		redirect(303, '/review?step=6');
 	},
 
 	/** The public-reporting moderator, and it is one tap (F7). */
-	share: async () => {
-		const ctx = requireContext();
+	share: async ({ locals }) => {
+		const ctx = requireContext(locals.userId);
 		if (!ctx) return fail(409, { error: 'Split is not initialised yet.' });
 
-		const row = db.select().from(schema.review).where(eq(schema.review.id, ctx.review.id)).get();
+		const { db, owns } = forUser(locals.userId);
+		const row = db
+			.select()
+			.from(schema.review)
+			.where(and(owns(schema.review), eq(schema.review.id, ctx.review.id)))
+			.get();
 		if (!row?.completedAt) return fail(409, { error: 'Finish the review first.', step: 6 });
 
-		markShared(ctx.review.id);
+		markShared(locals.userId, ctx.review.id);
 		return { shared: true };
 	}
 };

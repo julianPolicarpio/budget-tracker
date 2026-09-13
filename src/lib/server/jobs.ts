@@ -13,7 +13,7 @@
 
 import cron from 'node-cron';
 import { and, eq } from 'drizzle-orm';
-import { db, schema, sqlite } from './db';
+import { forUser, schema, sqlite } from './db';
 import { runBackup } from './backup';
 import { runRollover } from './rollover';
 import { materialise } from './irregulars';
@@ -33,48 +33,78 @@ const CATCH_UP_INTERVAL_MS = 15 * 60_000;
 
 const BACKUP_DIR = join(dirname(process.env.DATABASE_URL ?? 'data/split.db'), 'backups');
 
-function alreadyRan(jobKey: JobKey, forDate: string): boolean {
+/**
+ * Every account that can still own work — the nightly sweep is per user now
+ * (Spec §3.2), so this is the one place that enumerates "everyone". A raw
+ * SQL query, not the unscoped Drizzle handle: it is the one legitimately
+ * global read this module needs, since asking "which users exist" cannot
+ * itself be scoped to a user.
+ */
+function liveUserIds(): number[] {
+	return (
+		sqlite.prepare(`SELECT id FROM app_user WHERE deleted_at IS NULL`).all() as { id: number }[]
+	).map((r) => r.id);
+}
+
+function alreadyRan(userId: number, jobKey: JobKey, forDate: string): boolean {
+	const { db, owns } = forUser(userId);
 	return (
 		db
 			.select()
 			.from(schema.jobRun)
-			.where(and(eq(schema.jobRun.jobKey, jobKey), eq(schema.jobRun.ranFor, forDate)))
+			.where(
+				and(owns(schema.jobRun), eq(schema.jobRun.jobKey, jobKey), eq(schema.jobRun.ranFor, forDate))
+			)
 			.get() !== undefined
 	);
 }
 
-function recordRun(jobKey: JobKey, forDate: string, detail: string, now: Date): void {
+function recordRun(userId: number, jobKey: JobKey, forDate: string, detail: string, now: Date): void {
+	const { db } = forUser(userId);
 	db.insert(schema.jobRun)
-		.values({ jobKey, ranFor: forDate, ranAt: now.toISOString(), detail })
+		.values({ jobKey, ranFor: forDate, ranAt: now.toISOString(), detail, userId })
 		.onConflictDoNothing()
 		.run();
 }
 
-/** Run one job for one date, unless it already ran. Returns what it did. */
+/**
+ * Run one job for every live user, unless a given user's copy already ran
+ * today. Returns the detail of the last user actually run, or null if nobody
+ * had work outstanding — same contract as the single-user version had, which
+ * is exactly what a one-user database (every test harness) still sees.
+ */
 export function runJob(jobKey: JobKey, now: Date = new Date()): string | null {
-	const settings = loadSettings();
-	if (!settings) return null;
+	let lastDetail: string | null = null;
 
-	const forDate = localToday(settings.timezone, now);
-	if (alreadyRan(jobKey, forDate)) return null;
+	for (const userId of liveUserIds()) {
+		const settings = loadSettings(userId);
+		if (!settings) continue;
 
-	let detail: string;
-	if (jobKey === 'rollover') {
-		const r = runRollover(forDate, settings, now);
-		detail = `closed ${r.closed.length}, opened ${r.opened.length}`;
-	} else if (jobKey === 'irregulars') {
-		// Project instances 24 months forward, then check whether the current
-		// phase's exit has cleared. The phase check only ever *proposes*.
-		const written = materialise(forDate, now);
-		const proposal = proposePhaseChange(settings, forDate);
-		detail = `materialised ${written}` + (proposal ? `, proposed phase ${proposal.toPhase}` : '');
-	} else {
-		const b = runBackup(sqlite, BACKUP_DIR, forDate);
-		detail = `${b.bytes} bytes, pruned ${b.pruned.length}`;
+		const forDate = localToday(settings.timezone, now);
+		if (alreadyRan(userId, jobKey, forDate)) continue;
+
+		let detail: string;
+		if (jobKey === 'rollover') {
+			const r = runRollover(userId, forDate, settings, now);
+			detail = `closed ${r.closed.length}, opened ${r.opened.length}`;
+		} else if (jobKey === 'irregulars') {
+			// Project instances 24 months forward, then check whether the current
+			// phase's exit has cleared. The phase check only ever *proposes*.
+			const written = materialise(userId, forDate, now);
+			const proposal = proposePhaseChange(userId, settings, forDate);
+			detail = `materialised ${written}` + (proposal ? `, proposed phase ${proposal.toPhase}` : '');
+		} else {
+			// The backup is of the one shared SQLite file, not of a user's data —
+			// still recorded per user so job_run's key matches every other job.
+			const b = runBackup(sqlite, BACKUP_DIR, forDate);
+			detail = `${b.bytes} bytes, pruned ${b.pruned.length}`;
+		}
+
+		recordRun(userId, jobKey, forDate, detail, now);
+		lastDetail = detail;
 	}
 
-	recordRun(jobKey, forDate, detail, now);
-	return detail;
+	return lastDetail;
 }
 
 /**
@@ -92,31 +122,33 @@ export function runJob(jobKey: JobKey, now: Date = new Date()): string | null {
  * deadline then only fails if the server is down for the whole lead window.
  */
 export async function runSubscriptionAlerts(now: Date = new Date()): Promise<number> {
-	const settings = loadSettings();
-	if (!settings) return 0;
-
-	const today = localToday(settings.timezone, now);
 	let delivered = 0;
 
-	for (const { sub, stage, daysLeft } of pendingAlerts(today)) {
-		const when =
-			daysLeft === 0 ? 'today' : daysLeft === 1 ? 'tomorrow' : `in ${daysLeft} days`;
-		const ok = await notify({
-			title: stage === 2 ? `Last call: ${sub.label}` : `${sub.label} renews ${when}`,
-			subtitle: sub.vendor ?? undefined,
-			// No amount. The decision is keep-or-cancel; quoting the price here
-			// invites haggling with yourself instead of answering the question.
-			body:
-				sub.trialEndsOn !== null
-					? `Free trial ends ${when}. Cancel before then or it starts billing.`
-					: `Renews ${when}. Keep it or cancel it — decide now, not later.`
-		});
+	for (const userId of liveUserIds()) {
+		const settings = loadSettings(userId);
+		if (!settings) continue;
 
-		// Only on success: a failed notify leaves the row untouched so the next
-		// sweep tries again.
-		if (ok) {
-			recordAlert(sub.id, stage, now);
-			delivered++;
+		const today = localToday(settings.timezone, now);
+
+		for (const { sub, stage, daysLeft } of pendingAlerts(userId, today)) {
+			const when = daysLeft === 0 ? 'today' : daysLeft === 1 ? 'tomorrow' : `in ${daysLeft} days`;
+			const ok = await notify({
+				title: stage === 2 ? `Last call: ${sub.label}` : `${sub.label} renews ${when}`,
+				subtitle: sub.vendor ?? undefined,
+				// No amount. The decision is keep-or-cancel; quoting the price here
+				// invites haggling with yourself instead of answering the question.
+				body:
+					sub.trialEndsOn !== null
+						? `Free trial ends ${when}. Cancel before then or it starts billing.`
+						: `Renews ${when}. Keep it or cancel it — decide now, not later.`
+			});
+
+			// Only on success: a failed notify leaves the row untouched so the next
+			// sweep tries again.
+			if (ok) {
+				recordAlert(userId, sub.id, stage, now);
+				delivered++;
+			}
 		}
 	}
 	return delivered;
@@ -137,7 +169,11 @@ export function startScheduler(): void {
 	if (started || process.env.SPLIT_DISABLE_JOBS === '1') return;
 	started = true;
 
-	const settings = loadSettings();
+	// The cron tick itself is process-wide — node-cron fires on one timezone,
+	// then each job below iterates every live user and computes ITS OWN "today"
+	// from that user's own settings. User 1's timezone merely decides when the
+	// tick fires; it does not scope which users' work runs on it.
+	const settings = loadSettings(1);
 	const timezone = settings?.timezone ?? 'UTC';
 
 	// Catch up anything missed while the process was down, before scheduling.

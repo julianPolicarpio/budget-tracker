@@ -9,7 +9,7 @@
  */
 
 import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
-import { db, schema } from './db';
+import { forUser, schema } from './db';
 import { dailyAllowance, displayBand, tripDailyFigure, type Band } from '$lib/allowance';
 import { addDays, daysBetween, localToday } from './clock';
 import { subscriptionHorizon } from './subscriptions';
@@ -121,23 +121,34 @@ export interface TodayContext {
 	period: Period | null;
 }
 
-export function loadSettings(): Settings | null {
-	return db.select().from(schema.settings).where(eq(schema.settings.id, 1)).get() ?? null;
+export function loadSettings(userId: number): Settings | null {
+	const { db, owns } = forUser(userId);
+	return db.select().from(schema.settings).where(owns(schema.settings)).get() ?? null;
 }
 
 export { openPeriodOn };
 
-export function todayContext(now: Date = new Date()): TodayContext | null {
-	const settings = loadSettings();
+/**
+ * `todayOverride` lets a caller (tests, mainly) pin "today" to a fixed date
+ * instead of deriving it from `now` and the timezone — the rest of the
+ * pipeline is otherwise identical to the real path.
+ */
+export function todayContext(
+	userId: number,
+	todayOverride?: string,
+	now: Date = new Date()
+): TodayContext | null {
+	const { db, owns } = forUser(userId);
+	const settings = loadSettings(userId);
 	if (!settings) return null;
 
 	// The day boundary follows your body, not your bank: while a trip is active
 	// the log day is keyed in the trip's timezone (Spec §4.5). Because log_day is
 	// keyed on a date string, the 23- and 25-hour transition days are ordinary
 	// rows and need no special handling.
-	const trip = activeTrip();
-	const date = localToday(trip?.tripTz ?? settings.timezone, now);
-	const period = openPeriodOn(date);
+	const trip = activeTrip(userId);
+	const date = todayOverride ?? localToday(trip?.tripTz ?? settings.timezone, now);
+	const period = openPeriodOn(userId, date);
 
 	const entries = db
 		.select({
@@ -150,7 +161,7 @@ export function todayContext(now: Date = new Date()): TodayContext | null {
 			enteredAt: schema.txn.enteredAt
 		})
 		.from(schema.txn)
-		.where(eq(schema.txn.spentOn, date))
+		.where(and(owns(schema.txn), eq(schema.txn.spentOn, date)))
 		.orderBy(desc(schema.txn.id))
 		.all()
 		.map((r) => ({
@@ -169,6 +180,7 @@ export function todayContext(now: Date = new Date()): TodayContext | null {
 		db
 			.select({ loggedOn: schema.logDay.loggedOn })
 			.from(schema.logDay)
+			.where(owns(schema.logDay))
 			.all()
 			.map((r) => r.loggedOn)
 	);
@@ -188,12 +200,12 @@ export function todayContext(now: Date = new Date()): TodayContext | null {
 			})
 		: null;
 
-	const due = weeklyReviewDue(date, settings.weekStartsOn);
+	const due = weeklyReviewDue(userId, date, settings.weekStartsOn);
 
 	let tripView: TodayView['trip'] = null;
 	if (trip) {
-		const drawnHome = tripSpentMinor(trip.id);
-		const drawnLocal = tripSpentLocalMinor(trip.id);
+		const drawnHome = tripSpentMinor(userId, trip.id);
+		const drawnLocal = tripSpentLocalMinor(userId, trip.id);
 		const figure = tripDailyFigure(
 			{
 				envelopeMinor: trip.envelopeMinor,
@@ -232,8 +244,8 @@ export function todayContext(now: Date = new Date()): TodayContext | null {
 
 	// Only within 7 days, and only the nearest one. A list of everything
 	// upcoming belongs on the Irregulars screen, which is REVIEW class.
-	const soon = upcoming(date, addDays(date, 7))[0] ?? null;
-	const cover = soon ? coverage(date) : null;
+	const soon = upcoming(userId, date, addDays(date, 7))[0] ?? null;
+	const cover = soon ? coverage(userId, date) : null;
 	const horizon = soon
 		? {
 				label: soon.label,
@@ -244,7 +256,7 @@ export function todayContext(now: Date = new Date()): TodayContext | null {
 
 	// Seven days, matching the horizon. The 30-day lead belongs to the desktop
 	// notification, which fires once; this surface would simply nag.
-	const subDue = subscriptionHorizon(date);
+	const subDue = subscriptionHorizon(userId, date);
 	const subscriptionDue =
 		subDue && subDue.daysLeft <= 7
 			? {
@@ -257,8 +269,8 @@ export function todayContext(now: Date = new Date()): TodayContext | null {
 
 	let pendingMoves: TodayView['pendingMoves'] = null;
 	if (period) {
-		ensureAllocations(period, date);
-		const stale = stalePending(period, date);
+		ensureAllocations(userId, period, date);
+		const stale = stalePending(userId, period, date);
 		if (stale.length > 0) {
 			pendingMoves = { count: stale.length, firstLabel: stale[0].accountName };
 		}
@@ -280,7 +292,7 @@ export function todayContext(now: Date = new Date()): TodayContext | null {
 		horizon,
 		subscriptionDue,
 		pendingMoves,
-		ripeWaits: ripeItems(now).map((w) => ({
+		ripeWaits: ripeItems(userId, now).map((w) => ({
 			id: w.id,
 			label: w.label,
 			amountMinor: w.amountMinor
@@ -292,6 +304,18 @@ export function todayContext(now: Date = new Date()): TodayContext | null {
 }
 
 /**
+ * Thin wrapper over `todayContext()` for callers (tests, mainly) that only
+ * want the view and can assume a settings row exists — throws rather than
+ * returning null, since a nullable return would just be re-unwrapped at every
+ * call site that already knows the user is real.
+ */
+export function todayView(userId: number, todayOverride?: string, now: Date = new Date()): TodayView {
+	const ctx = todayContext(userId, todayOverride, now);
+	if (!ctx) throw new Error(`No settings for user ${userId}`);
+	return ctx.view;
+}
+
+/**
  * Record an explicit close for a log day. A night with zero purchases still
  * gets a row: the streak counts *logged* days, not spending days, and a
  * zero-spend day is the cheapest possible way to keep it alive (Spec §4.6).
@@ -299,17 +323,29 @@ export function todayContext(now: Date = new Date()): TodayContext | null {
  * `isCatchup` marks the pre-authorised lossy catch-up from Method Part V — one
  * combined entry for two days, with no attempt to reconstruct details.
  */
-export function closeLogDay(date: string, now: Date = new Date(), isCatchup = false): void {
+export function closeLogDay(
+	userId: number,
+	date: string,
+	now: Date = new Date(),
+	isCatchup = false
+): void {
+	const { db, owns } = forUser(userId);
 	const count =
 		db
 			.select({ n: sql<number>`count(*)` })
 			.from(schema.txn)
-			.where(eq(schema.txn.spentOn, date))
+			.where(and(owns(schema.txn), eq(schema.txn.spentOn, date)))
 			.get()?.n ?? 0;
 
 	const stamp = now.toISOString();
 	db.insert(schema.logDay)
-		.values({ loggedOn: date, entryCount: count, isCatchup: isCatchup ? 1 : 0, closedAt: stamp })
+		.values({
+			loggedOn: date,
+			entryCount: count,
+			isCatchup: isCatchup ? 1 : 0,
+			closedAt: stamp,
+			userId
+		})
 		.onConflictDoUpdate({
 			// log_day's primary key is (user_id, logged_on) as of migration
 			// 0008 — the conflict target must name the real key, not just the date.
@@ -320,13 +356,18 @@ export function closeLogDay(date: string, now: Date = new Date(), isCatchup = fa
 }
 
 /** True if `date` is the single-day gap the streak will still forgive today. */
-export function catchUpEligible(date: string, today: string): boolean {
+export function catchUpEligible(userId: number, date: string, today: string): boolean {
+	const { db, owns } = forUser(userId);
 	const logged = new Set(
 		db
 			.select({ loggedOn: schema.logDay.loggedOn })
 			.from(schema.logDay)
 			.where(
-				and(gte(schema.logDay.loggedOn, addDays(today, -3)), lte(schema.logDay.loggedOn, today))
+				and(
+					owns(schema.logDay),
+					gte(schema.logDay.loggedOn, addDays(today, -3)),
+					lte(schema.logDay.loggedOn, today)
+				)
 			)
 			.all()
 			.map((r) => r.loggedOn)

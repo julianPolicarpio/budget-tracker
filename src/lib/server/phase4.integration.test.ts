@@ -56,8 +56,8 @@ beforeAll(async () => {
 			 VALUES (1,'PHP','₱',2,1000,'weekly',0,15,10,1,'Asia/Manila',600000,'2026-08-01T00:00:00Z')`
 		)
 		.run();
-	m.accounts.assertBalance(4, 5_000_000, '2026-08-16'); // Irregulars
-	m.accounts.assertBalance(5, 3_000_000, '2026-08-16'); // Buffer
+	m.accounts.assertBalance(1, 4, 5_000_000, '2026-08-16'); // Irregulars
+	m.accounts.assertBalance(1, 5, 3_000_000, '2026-08-16'); // Buffer
 });
 
 // ─── The inversion ────────────────────────────────────────────────────────
@@ -116,7 +116,7 @@ describe('the trip lifecycle', () => {
 	let tripId: number;
 
 	it('declares a trip as a funded irregular, padded like any other estimate', () => {
-		const trip = m.trips.declareTrip({
+		const trip = m.trips.declareTrip(1, {
 			label: 'Tokyo, September',
 			startsOn: '2026-09-01',
 			endsOn: '2026-09-10',
@@ -138,7 +138,7 @@ describe('the trip lifecycle', () => {
 
 	it('refuses a stay long enough to be a relocation', () => {
 		expect(() =>
-			m.trips.declareTrip({
+			m.trips.declareTrip(1, {
 				label: 'Semester abroad',
 				startsOn: '2027-01-01',
 				endsOn: '2027-06-01',
@@ -153,34 +153,34 @@ describe('the trip lifecycle', () => {
 	});
 
 	it('runs the funding check 14 days out, not on the day', () => {
-		const trip = m.trips.tripById(tripId)!;
-		expect(m.trips.fundingCheck(trip, '2026-08-01').due).toBe(false);
-		const check = m.trips.fundingCheck(trip, '2026-08-20');
+		const trip = m.trips.tripById(1, tripId)!;
+		expect(m.trips.fundingCheck(1, trip, '2026-08-01').due).toBe(false);
+		const check = m.trips.fundingCheck(1, trip, '2026-08-20');
 		expect(check.due).toBe(true);
 		expect(check.daysToDeparture).toBe(12);
 	});
 
 	it('demands an IOU for the third option', () => {
-		expect(() => m.trips.coverShortfall(tripId, 500_000, '   ', null, '2026-08-20')).toThrow(
+		expect(() => m.trips.coverShortfall(1, tripId, 500_000, '   ', null, '2026-08-20')).toThrow(
 			m.accounts.IouRequired
 		);
 
-		m.trips.coverShortfall(
+		m.trips.coverShortfall(1, 
 			tripId,
 			500_000,
 			'Short on Tokyo, back in October',
 			'2026-10-31',
 			'2026-08-20'
 		);
-		expect(m.trips.tripById(tripId)!.bufferDrawMinor).toBe(500_000);
-		expect(m.accounts.openIous('2026-08-20')).toHaveLength(1);
+		expect(m.trips.tripById(1, tripId)!.bufferDrawMinor).toBe(500_000);
+		expect(m.accounts.openIous(1, '2026-08-20')).toHaveLength(1);
 	});
 
 	it('activates, and refuses a second overlapping trip', () => {
-		m.trips.activateTrip(tripId);
-		expect(m.trips.activeTrip()?.id).toBe(tripId);
+		m.trips.activateTrip(1, tripId);
+		expect(m.trips.activeTrip(1)?.id).toBe(tripId);
 
-		const other = m.trips.declareTrip({
+		const other = m.trips.declareTrip(1, {
 			label: 'Cebu',
 			startsOn: '2026-09-05',
 			endsOn: '2026-09-07',
@@ -191,8 +191,8 @@ describe('the trip lifecycle', () => {
 			fxRateToHome: 1.0, // domestic: everything collapses to the normal path
 			estimateMinor: 500_000
 		});
-		expect(() => m.trips.activateTrip(other.id)).toThrow(/still active/);
-		m.trips.cancelTrip(other.id);
+		expect(() => m.trips.activateTrip(1, other.id)).toThrow(/still active/);
+		m.trips.cancelTrip(1, other.id);
 	});
 
 	it('cancelling releases the linked irregular instance', () => {
@@ -214,7 +214,7 @@ describe('the trip lifecycle', () => {
 // ─── The rate edit ────────────────────────────────────────────────────────
 describe('editing the locked rate', () => {
 	function logTrip(localMinor: number, spentOn: string) {
-		const trip = m.trips.activeTrip()!;
+		const trip = m.trips.activeTrip(1)!;
 		m.sqlite
 			.prepare(
 				`INSERT INTO txn (spent_on, amount_minor, category, planned, entered_at,
@@ -237,7 +237,7 @@ describe('editing the locked rate', () => {
 		logTrip(3800, '2026-09-01'); // ¥3,800
 		logTrip(12_500, '2026-09-02'); // ¥12,500
 
-		const trip = m.trips.activeTrip()!;
+		const trip = m.trips.activeTrip(1)!;
 		const before = m.sqlite
 			.prepare(
 				'SELECT amount_local_minor AS l, amount_minor AS h FROM txn WHERE trip_id = ? ORDER BY id'
@@ -248,7 +248,7 @@ describe('editing the locked rate', () => {
 		expect(before.map((r) => r.h)).toEqual([144_400, 475_000]);
 
 		// The ATM fee turned out worse than assumed.
-		m.trips.setRate(trip.id, 0.41, 2);
+		m.trips.setRate(1, trip.id, 0.41, 2);
 
 		const after = m.sqlite
 			.prepare(
@@ -265,18 +265,18 @@ describe('editing the locked rate', () => {
 // ─── Settling ─────────────────────────────────────────────────────────────
 describe('settling a trip', () => {
 	it('separates estimate error from FX-and-fee error', () => {
-		const trip = m.trips.activeTrip()!;
-		const logged = m.trips.tripSpentMinor(trip.id);
+		const trip = m.trips.activeTrip(1)!;
+		const logged = m.trips.tripSpentMinor(1, trip.id);
 
 		// The bank actually took more than the locked rate implied.
-		const s = m.trips.settleTrip(trip.id, logged + 40_000, '2026-09-12');
+		const s = m.trips.settleTrip(1, trip.id, logged + 40_000, '2026-09-12');
 
 		expect(s.loggedMinor).toBe(logged);
 		// envelope − logged: did the trip cost what I thought?
 		expect(s.estimateErrorMinor).toBe(trip.envelopeMinor - logged);
 		// actual − logged: was my rate right? Different failure, different fix.
 		expect(s.fxErrorMinor).toBe(40_000);
-		expect(m.trips.activeTrip()).toBeNull();
+		expect(m.trips.activeTrip(1)).toBeNull();
 	});
 
 	it('feeds the settled trip into the estimate-accuracy history', () => {
@@ -292,7 +292,7 @@ describe('settling a trip', () => {
 
 	it('leaves the ongoing metrics untouched by the whole trip', () => {
 		// The quarantine again, now with real trip rows behind it.
-		const a = m.metrics.weekActuals({ from: '2026-09-01', to: '2026-09-10' });
+		const a = m.metrics.weekActuals(1, { from: '2026-09-01', to: '2026-09-10' });
 		expect(a.totalMinor).toBe(0);
 		expect(a.unplannedRatioBp).toBeNull();
 	});
@@ -352,43 +352,43 @@ describe('the 72-hour list', () => {
 	const added = new Date('2026-08-16T20:00:00Z');
 
 	it('is not ripe before 72 hours are up', () => {
-		m.rules.addWaitItem('Mechanical keyboard', 320_000, added);
-		expect(m.rules.ripeItems(new Date('2026-08-18T20:00:00Z'))).toHaveLength(0);
-		expect(m.rules.waitingItems(new Date('2026-08-18T20:00:00Z'))).toHaveLength(1);
+		m.rules.addWaitItem(1, 'Mechanical keyboard', 320_000, added);
+		expect(m.rules.ripeItems(1, new Date('2026-08-18T20:00:00Z'))).toHaveLength(0);
+		expect(m.rules.waitingItems(1, new Date('2026-08-18T20:00:00Z'))).toHaveLength(1);
 	});
 
 	it('ripens at exactly 72 hours', () => {
-		expect(m.rules.ripeItems(new Date('2026-08-19T20:00:01Z'))).toHaveLength(1);
+		expect(m.rules.ripeItems(1, new Date('2026-08-19T20:00:01Z'))).toHaveLength(1);
 	});
 
 	it('reports the drop rate, which is the argument for the rule', () => {
-		expect(m.rules.dropRateBp()).toBeNull();
+		expect(m.rules.dropRateBp(1)).toBeNull();
 
-		const ripe = m.rules.ripeItems(new Date('2026-08-19T20:00:01Z'))[0];
-		m.rules.resolveWaitItem(ripe.id, 'dropped');
-		expect(m.rules.dropRateBp()).toBe(10_000);
+		const ripe = m.rules.ripeItems(1, new Date('2026-08-19T20:00:01Z'))[0];
+		m.rules.resolveWaitItem(1, ripe.id, 'dropped');
+		expect(m.rules.dropRateBp(1)).toBe(10_000);
 
-		m.rules.addWaitItem('Headphones', 500_000, added);
-		const next = m.rules.ripeItems(new Date('2026-08-19T20:00:01Z'))[0];
-		m.rules.resolveWaitItem(next.id, 'bought');
-		expect(m.rules.dropRateBp()).toBe(5000);
+		m.rules.addWaitItem(1, 'Headphones', 500_000, added);
+		const next = m.rules.ripeItems(1, new Date('2026-08-19T20:00:01Z'))[0];
+		m.rules.resolveWaitItem(1, next.id, 'bought');
+		expect(m.rules.dropRateBp(1)).toBe(5000);
 	});
 });
 
 // ─── The pre-seeded if-then plans ─────────────────────────────────────────
 describe('if-then plans', () => {
 	it('ship pre-populated, because a blank page gets zero rules written', () => {
-		const rules = m.rules.listRules();
+		const rules = m.rules.listRules(1);
 		expect(rules.length).toBeGreaterThanOrEqual(18);
 		expect(new Set(rules.map((r) => r.category)).size).toBe(6);
 	});
 
 	it('counts firings, which is what the quarterly audit reads', () => {
-		const first = m.rules.listRules()[0];
+		const first = m.rules.listRules(1)[0];
 		expect(first.firedCount).toBe(0);
-		m.rules.fireRule(first.id);
-		m.rules.fireRule(first.id);
-		expect(m.rules.listRules()[0].firedCount).toBe(2);
-		expect(m.rules.listRules()[0].lastFired).not.toBeNull();
+		m.rules.fireRule(1, first.id);
+		m.rules.fireRule(1, first.id);
+		expect(m.rules.listRules(1)[0].firedCount).toBe(2);
+		expect(m.rules.listRules(1)[0].lastFired).not.toBeNull();
 	});
 });

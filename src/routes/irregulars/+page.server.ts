@@ -1,6 +1,6 @@
 import { fail, redirect, type Actions } from '@sveltejs/kit';
 import { and, asc, desc, eq, isNotNull, isNull } from 'drizzle-orm';
-import { db, schema } from '$lib/server/db';
+import { forUser, schema } from '$lib/server/db';
 import { loadSettings } from '$lib/server/today';
 import { localToday } from '$lib/server/clock';
 import { openPeriodOn } from '$lib/server/rollover';
@@ -31,15 +31,16 @@ const CADENCES = [
 	'every_n_years'
 ] as const;
 
-export const load: PageServerLoad = () => {
-	const settings = loadSettings();
+export const load: PageServerLoad = ({ locals }) => {
+	const settings = loadSettings(locals.userId);
 	if (!settings) return { ready: false as const };
 
+	const { db, owns } = forUser(locals.userId);
 	const today = localToday(settings.timezone);
 	// Cheap and idempotent; keeps the page honest if the nightly job was missed.
-	materialise(today);
+	materialise(locals.userId, today);
 
-	const period = openPeriodOn(today);
+	const period = openPeriodOn(locals.userId, today);
 
 	// The two series for the accrual chart are both recoverable from the review
 	// snapshots: the balance is asserted at R1, and dividing it by the stored
@@ -51,7 +52,7 @@ export const load: PageServerLoad = () => {
 			coverageRatioBp: schema.review.coverageRatioBp
 		})
 		.from(schema.review)
-		.where(and(eq(schema.review.kind, 'weekly'), isNotNull(schema.review.completedAt)))
+		.where(and(owns(schema.review), eq(schema.review.kind, 'weekly'), isNotNull(schema.review.completedAt)))
 		.orderBy(asc(schema.review.endsOn))
 		.all()
 		.filter((r) => r.accruedMinor !== null)
@@ -67,26 +68,26 @@ export const load: PageServerLoad = () => {
 	return {
 		ready: true as const,
 		today,
-		coverage: coverage(today),
-		overdue: overdue(today),
-		upcoming: upcoming(today, addMonths(today, 12)),
-		outflow: monthlyOutflow(today),
-		accuracy: estimateAccuracy(addMonths(today, -12)),
+		coverage: coverage(locals.userId, today),
+		overdue: overdue(locals.userId, today),
+		upcoming: upcoming(locals.userId, today, addMonths(today, 12)),
+		outflow: monthlyOutflow(locals.userId, today),
+		accuracy: estimateAccuracy(locals.userId, addMonths(today, -12)),
 		history,
 		definitions: db
 			.select()
 			.from(schema.irregular)
-			.where(isNull(schema.irregular.archivedAt))
+			.where(and(owns(schema.irregular), isNull(schema.irregular.archivedAt)))
 			.orderBy(asc(schema.irregular.nextDueOn))
 			.all(),
 		archived: db
 			.select()
 			.from(schema.irregular)
-			.where(isNotNull(schema.irregular.archivedAt))
+			.where(and(owns(schema.irregular), isNotNull(schema.irregular.archivedAt)))
 			.orderBy(desc(schema.irregular.archivedAt))
 			.limit(5)
 			.all(),
-		accrualPerPeriod: period ? requiredAccrualPerPeriod(today, period.days) : null,
+		accrualPerPeriod: period ? requiredAccrualPerPeriod(locals.userId, today, period.days) : null,
 		periodDays: period?.days ?? null,
 		currency: {
 			code: settings.currencyCode,
@@ -98,8 +99,8 @@ export const load: PageServerLoad = () => {
 
 export const actions: Actions = {
 	/** Declare an irregular. Padding defaults to 25% and is shown, never hidden. */
-	upsert: async ({ request }) => {
-		const settings = loadSettings();
+	upsert: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
@@ -138,14 +139,19 @@ export const actions: Actions = {
 			isEstimate: 1
 		};
 
+		const { db, owns } = forUser(locals.userId);
 		if (id) {
-			db.update(schema.irregular).set(values).where(eq(schema.irregular.id, id)).run();
+			db.update(schema.irregular)
+				.set(values)
+				.where(and(owns(schema.irregular), eq(schema.irregular.id, id)))
+				.run();
 			// Re-price the instances that have not happened yet; settled ones are
 			// history and are never rewritten.
 			db.update(schema.irregularInstance)
 				.set({ expectedMinor: paddedAmount(amountMinor, paddingPct) })
 				.where(
 					and(
+						owns(schema.irregularInstance),
 						eq(schema.irregularInstance.irregularId, id),
 						isNull(schema.irregularInstance.settledOn)
 					)
@@ -153,22 +159,23 @@ export const actions: Actions = {
 				.run();
 		} else {
 			db.insert(schema.irregular)
-				.values({ ...values, createdAt: new Date().toISOString() })
+				.values({ ...values, createdAt: new Date().toISOString(), userId: locals.userId })
 				.run();
 		}
 
-		materialise(localToday(settings.timezone));
+		materialise(locals.userId, localToday(settings.timezone));
 		redirect(303, '/irregulars');
 	},
 
-	archive: async ({ request }) => {
+	archive: async ({ request, locals }) => {
 		const form = await request.formData();
 		const id = Number(form.get('id'));
 		if (!Number.isInteger(id)) return fail(400, { error: 'Unknown irregular.' });
 
+		const { db, owns } = forUser(locals.userId);
 		db.update(schema.irregular)
 			.set({ archivedAt: new Date().toISOString() })
-			.where(eq(schema.irregular.id, id))
+			.where(and(owns(schema.irregular), eq(schema.irregular.id, id)))
 			.run();
 		redirect(303, '/irregulars');
 	},
@@ -180,8 +187,8 @@ export const actions: Actions = {
 	 * stops marking instances, the ledger drifts from reality, and the app keeps
 	 * reporting healthy coverage while the account is empty.
 	 */
-	reconcile: async ({ request }) => {
-		const settings = loadSettings();
+	reconcile: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
@@ -196,15 +203,15 @@ export const actions: Actions = {
 			if (actualMinor === null || actualMinor < 0) {
 				return fail(400, { error: 'Enter what it actually cost.', instanceId });
 			}
-			settleInstance(instanceId, actualMinor, String(form.get('settledOn') || today));
+			settleInstance(locals.userId, instanceId, actualMinor, String(form.get('settledOn') || today));
 		} else if (choice === 'skipped') {
-			skipInstance(instanceId);
+			skipInstance(locals.userId, instanceId);
 		} else if (choice === 'rescheduled') {
 			const dueOn = String(form.get('dueOn') ?? '');
 			if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn)) {
 				return fail(400, { error: 'Pick the new date.', instanceId });
 			}
-			rescheduleInstance(instanceId, dueOn);
+			rescheduleInstance(locals.userId, instanceId, dueOn);
 		} else {
 			return fail(400, { error: 'Paid, skipped or rescheduled — there is no fourth option.' });
 		}

@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { fail, type Actions } from '@sveltejs/kit';
-import { eq, sql } from 'drizzle-orm';
-import { db, schema } from '$lib/server/db';
+import { and, eq, sql } from 'drizzle-orm';
+import { forUser, schema } from '$lib/server/db';
 import {
 	catchUpEligible,
 	closeLogDay,
@@ -22,16 +22,16 @@ import type { PageServerLoad } from './$types';
 // empty state is the very first thing a new install shows.
 const inContainer = existsSync('/.dockerenv') || process.env.SPLIT_IN_CONTAINER === '1';
 
-export const load: PageServerLoad = () => {
-	const ctx = todayContext();
+export const load: PageServerLoad = ({ locals }) => {
+	const ctx = todayContext(locals.userId);
 	if (!ctx) return { view: null, hasPeriod: false, inContainer };
 	return { view: ctx.view, hasPeriod: ctx.period !== null, inContainer };
 };
 
 export const actions: Actions = {
 	/** Log one discretionary purchase. The whole point of the app (F6). */
-	logTxn: async ({ request }) => {
-		const settings = loadSettings();
+	logTxn: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
@@ -42,7 +42,7 @@ export const actions: Actions = {
 
 		// Parsed at the TRIP's scale while one is active: JPY/KRW/VND have no
 		// decimals, and parsing ¥1000 at two would log ¥100000.
-		const scaleUnits = activeTrip()?.localMinorUnits ?? settings.minorUnits;
+		const scaleUnits = activeTrip(locals.userId)?.localMinorUnits ?? settings.minorUnits;
 		const amountMinor = parseMoney(rawAmount, scaleUnits);
 		if (amountMinor === null) {
 			const example = scaleUnits > 0 ? `185${'.' + '5'.padEnd(scaleUnits, '0')}` : '185';
@@ -63,7 +63,7 @@ export const actions: Actions = {
 		}
 
 		const now = new Date();
-		const trip = activeTrip();
+		const trip = activeTrip(locals.userId);
 		const spentOn = localToday(trip?.tripTz ?? settings.timezone, now);
 
 		// On a trip the typed amount is LOCAL and is the source of truth; the
@@ -76,7 +76,7 @@ export const actions: Actions = {
 
 			// A tenfold fat-finger in an unfamiliar currency has no intuition to
 			// catch it, so the app catches it (Spec §12). Confirmable, not blocked.
-			const figure = tripDailyFigure(trip, tripSpentMinor(trip.id), spentOn);
+			const figure = tripDailyFigure(trip, tripSpentMinor(locals.userId, trip.id), spentOn);
 			if (figure.figure > 0 && homeMinor > figure.figure * 10 && form.get('confirmed') !== '1') {
 				return fail(409, {
 					field: 'amount',
@@ -106,21 +106,24 @@ export const actions: Actions = {
 				category,
 				planned: rawPlanned === '1' ? 1 : 0,
 				note: null,
-				periodId: openPeriodOn(spentOn)?.id ?? null,
+				periodId: openPeriodOn(locals.userId, spentOn)?.id ?? null,
 				enteredAt: now.toISOString(),
 				clientUuid
 			};
 		}
 
+		const { db } = forUser(locals.userId);
 		try {
-			db.insert(schema.txn).values(values).run();
+			db.insert(schema.txn)
+				.values({ ...values, userId: locals.userId })
+				.run();
 		} catch (err) {
 			// A repeat of the same client_uuid is a double-submit, not an error.
 			const message = err instanceof Error ? err.message : '';
 			if (!message.includes('UNIQUE') || !message.includes('client_uuid')) throw err;
 		}
 
-		closeLogDay(spentOn, now);
+		closeLogDay(locals.userId, spentOn, now);
 		return { saved: true };
 	},
 
@@ -129,18 +132,22 @@ export const actions: Actions = {
 	 * possible way to keep the streak alive (Spec §4.6) — it is a first-class
 	 * action here, not an absence.
 	 */
-	logNothing: () => {
-		const settings = loadSettings();
+	logNothing: ({ locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const now = new Date();
-		closeLogDay(localToday(activeTrip()?.tripTz ?? settings.timezone, now), now);
+		closeLogDay(
+			locals.userId,
+			localToday(activeTrip(locals.userId)?.tripTz ?? settings.timezone, now),
+			now
+		);
 		return { closed: true };
 	},
 
 	/** Rule 4: park it for 72 hours. Most items die on the list. */
-	addWait: async ({ request }) => {
-		const settings = loadSettings();
+	addWait: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
@@ -148,12 +155,12 @@ export const actions: Actions = {
 		if (!label) return fail(400, { error: 'Name the thing you want.' });
 
 		const raw = String(form.get('amount') ?? '').trim();
-		addWaitItem(label, raw ? parseMoney(raw, settings.minorUnits) : null);
+		addWaitItem(locals.userId, label, raw ? parseMoney(raw, settings.minorUnits) : null);
 		return { waiting: true };
 	},
 
 	/** The 72 hours are up: buy it guilt-free, or let it go. */
-	resolveWait: async ({ request }) => {
+	resolveWait: async ({ request, locals }) => {
 		const form = await request.formData();
 		const id = Number(form.get('id'));
 		const outcome = String(form.get('outcome') ?? '');
@@ -161,7 +168,7 @@ export const actions: Actions = {
 		if (outcome !== 'bought' && outcome !== 'dropped') {
 			return fail(400, { error: 'Bought or dropped.' });
 		}
-		resolveWaitItem(id, outcome);
+		resolveWaitItem(locals.userId, id, outcome);
 		return { resolved: true };
 	},
 
@@ -182,8 +189,8 @@ export const actions: Actions = {
 	 * single-day eligibility check, because a flow that can reach further back
 	 * than yesterday is the backfill Spec §4.6 refuses to build.
 	 */
-	catchUp: async ({ request }) => {
-		const settings = loadSettings();
+	catchUp: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
@@ -193,29 +200,29 @@ export const actions: Actions = {
 		}
 
 		const now = new Date();
-		const today = localToday(activeTrip()?.tripTz ?? settings.timezone, now);
+		const today = localToday(activeTrip(locals.userId)?.tripTz ?? settings.timezone, now);
 		const yesterday = addDays(today, -1);
 
-		if (!catchUpEligible(yesterday, today)) {
+		if (!catchUpEligible(locals.userId, yesterday, today)) {
 			return fail(409, { error: 'That catch-up window has closed. Start tonight.' });
 		}
 
 		// Filed late, but not lossy: a zero-spend day carries its full detail,
 		// so it is not flagged as a catch-up. `is_catchup` marks the entry whose
 		// contents were surrendered, and nothing was surrendered here.
-		closeLogDay(yesterday, now, mode === 'catchup');
+		closeLogDay(locals.userId, yesterday, now, mode === 'catchup');
 
 		// Only the lossy path closes today as well — that is what makes it "one
 		// combined entry for both days". Asserting yesterday cost nothing says
 		// nothing whatsoever about today, so today stays open.
-		if (mode === 'catchup') closeLogDay(today, now);
+		if (mode === 'catchup') closeLogDay(locals.userId, today, now);
 
 		return { caughtUp: true };
 	},
 
 	/** Remove a mistyped entry. Today's entries only — history is not editable here. */
-	deleteTxn: async ({ request }) => {
-		const settings = loadSettings();
+	deleteTxn: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
@@ -223,15 +230,20 @@ export const actions: Actions = {
 		if (!Number.isInteger(id)) return fail(400, { error: 'Unknown entry.' });
 
 		const now = new Date();
-		const today = localToday(activeTrip()?.tripTz ?? settings.timezone, now);
+		const today = localToday(activeTrip(locals.userId)?.tripTz ?? settings.timezone, now);
 
+		const { db, owns } = forUser(locals.userId);
 		db.delete(schema.txn)
-			.where(sql`${schema.txn.id} = ${id} AND ${schema.txn.spentOn} = ${today}`)
+			.where(and(owns(schema.txn), sql`${schema.txn.id} = ${id} AND ${schema.txn.spentOn} = ${today}`))
 			.run();
 
 		// Keep the day's entry count honest, but never un-close the day.
-		const closed = db.select().from(schema.logDay).where(eq(schema.logDay.loggedOn, today)).get();
-		if (closed) closeLogDay(today, now);
+		const closed = db
+			.select()
+			.from(schema.logDay)
+			.where(and(owns(schema.logDay), eq(schema.logDay.loggedOn, today)))
+			.get();
+		if (closed) closeLogDay(locals.userId, today, now);
 
 		return { deleted: true };
 	}

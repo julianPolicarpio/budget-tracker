@@ -15,7 +15,7 @@
  */
 
 import { and, asc, desc, eq, gte, isNull, lte, ne, or, sql } from 'drizzle-orm';
-import { db, schema } from './db';
+import { forUser, schema, type Scope } from './db';
 import { addDays, daysBetween } from './clock';
 import type { Irregular, IrregularInstance } from './db/schema';
 
@@ -84,9 +84,14 @@ export function addMonths(isoDate: string, months: number): string {
  * Only `projected` rows are refreshed. A settled or skipped instance is
  * history and is never rewritten by a projection.
  */
-export function materialise(today: string, now: Date = new Date()): number {
+export function materialise(userId: number, today: string, now: Date = new Date()): number {
+	const { db, owns } = forUser(userId);
 	const horizon = addMonths(today, HORIZON_MONTHS);
-	const live = db.select().from(schema.irregular).where(isNull(schema.irregular.archivedAt)).all();
+	const live = db
+		.select()
+		.from(schema.irregular)
+		.where(and(owns(schema.irregular), isNull(schema.irregular.archivedAt)))
+		.all();
 
 	// Project from the irregular's own next due date when that is already in the
 	// past, not from today. Declaring a cost that was due last week must still
@@ -108,7 +113,8 @@ export function materialise(today: string, now: Date = new Date()): number {
 					irregularId: irr.id,
 					dueOn,
 					expectedMinor: expected,
-					status: dueOn <= today ? 'due' : 'projected'
+					status: dueOn <= today ? 'due' : 'projected',
+					userId
 				})
 				.onConflictDoNothing()
 				.run();
@@ -122,6 +128,7 @@ export function materialise(today: string, now: Date = new Date()): number {
 		.set({ status: 'due' })
 		.where(
 			and(
+				owns(schema.irregularInstance),
 				eq(schema.irregularInstance.status, 'projected'),
 				lte(schema.irregularInstance.dueOn, today)
 			)
@@ -139,8 +146,12 @@ export function materialise(today: string, now: Date = new Date()): number {
  * in two months automatically raises the next two periods' accrual instead of
  * quietly under-funding it.
  */
-export function requiredAccrualPerPeriod(today: string, daysPerPeriod: number): number {
-	const rows = unsettledDueBy(today, addMonths(today, 12));
+export function requiredAccrualPerPeriod(
+	userId: number,
+	today: string,
+	daysPerPeriod: number
+): number {
+	const rows = unsettledDueBy(userId, today, addMonths(today, 12));
 	let total = 0;
 	for (const inst of rows) {
 		const periodsLeft = Math.max(1, Math.ceil(daysBetween(today, inst.dueOn) / daysPerPeriod));
@@ -166,15 +177,16 @@ export interface Coverage {
  * is why the Review screen leads with it rather than making it one tile among
  * twelve (Spec §4.3).
  */
-export function coverage(today: string): Coverage {
+export function coverage(userId: number, today: string): Coverage {
+	const { db, owns } = forUser(userId);
 	const balanceMinor =
 		db
 			.select({ n: schema.account.balanceMinor })
 			.from(schema.account)
-			.where(eq(schema.account.kind, 'irregulars'))
+			.where(and(owns(schema.account), eq(schema.account.kind, 'irregulars')))
 			.get()?.n ?? 0;
 
-	const rows = unsettledDueBy(today, addDays(today, 90));
+	const rows = unsettledDueBy(userId, today, addDays(today, 90));
 	const due90Minor = rows.reduce((sum, r) => sum + r.expectedMinor, 0);
 
 	if (due90Minor === 0) {
@@ -211,7 +223,8 @@ export interface UpcomingInstance {
 	category: string | null;
 }
 
-function unsettledDueBy(from: string, to: string): UpcomingInstance[] {
+function unsettledDueBy(userId: number, from: string, to: string): UpcomingInstance[] {
+	const { db, owns } = forUser(userId);
 	return db
 		.select({
 			id: schema.irregularInstance.id,
@@ -226,6 +239,7 @@ function unsettledDueBy(from: string, to: string): UpcomingInstance[] {
 		.innerJoin(schema.irregular, eq(schema.irregular.id, schema.irregularInstance.irregularId))
 		.where(
 			and(
+				owns(schema.irregularInstance),
 				or(
 					eq(schema.irregularInstance.status, 'projected'),
 					eq(schema.irregularInstance.status, 'due')
@@ -239,8 +253,8 @@ function unsettledDueBy(from: string, to: string): UpcomingInstance[] {
 }
 
 /** Everything unsettled between two dates — the Upcoming table and R4's strip. */
-export function upcoming(from: string, to: string): UpcomingInstance[] {
-	return unsettledDueBy(from, to);
+export function upcoming(userId: number, from: string, to: string): UpcomingInstance[] {
+	return unsettledDueBy(userId, from, to);
 }
 
 /**
@@ -252,8 +266,8 @@ export function upcoming(from: string, to: string): UpcomingInstance[] {
  * choice on every one of these — paid, skipped, or rescheduled. There is no
  * dismiss (Spec §4.3).
  */
-export function overdue(today: string): UpcomingInstance[] {
-	return unsettledDueBy('0000-01-01', addDays(today, -1));
+export function overdue(userId: number, today: string): UpcomingInstance[] {
+	return unsettledDueBy(userId, '0000-01-01', addDays(today, -1));
 }
 
 /**
@@ -262,22 +276,24 @@ export function overdue(today: string): UpcomingInstance[] {
  * prediction bias.
  */
 export function settleInstance(
+	userId: number,
 	instanceId: number,
 	actualMinor: number,
 	settledOn: string,
 	now: Date = new Date()
 ): void {
+	const { db, owns } = forUser(userId);
 	db.transaction((tx) => {
 		const inst = tx
 			.select()
 			.from(schema.irregularInstance)
-			.where(eq(schema.irregularInstance.id, instanceId))
+			.where(and(owns(schema.irregularInstance), eq(schema.irregularInstance.id, instanceId)))
 			.get();
 		if (!inst) throw new Error(`No irregular instance ${instanceId}`);
 
 		tx.update(schema.irregularInstance)
 			.set({ status: 'settled', actualMinor, settledOn })
-			.where(eq(schema.irregularInstance.id, instanceId))
+			.where(and(owns(schema.irregularInstance), eq(schema.irregularInstance.id, instanceId)))
 			.run();
 
 		// Drawdown: the money leaves Irregulars because the cost landed.
@@ -286,49 +302,53 @@ export function settleInstance(
 				balanceMinor: sql`max(0, ${schema.account.balanceMinor} - ${actualMinor})`,
 				balanceAsOf: settledOn
 			})
-			.where(eq(schema.account.kind, 'irregulars'))
+			.where(and(owns(schema.account), eq(schema.account.kind, 'irregulars')))
 			.run();
 
-		advanceNextDue(tx, inst.irregularId, inst.dueOn);
+		advanceNextDue(userId, tx, inst.irregularId, inst.dueOn);
 	});
 	void now;
 }
 
-export function skipInstance(instanceId: number): void {
+export function skipInstance(userId: number, instanceId: number): void {
+	const { db, owns } = forUser(userId);
 	db.transaction((tx) => {
 		const inst = tx
 			.select()
 			.from(schema.irregularInstance)
-			.where(eq(schema.irregularInstance.id, instanceId))
+			.where(and(owns(schema.irregularInstance), eq(schema.irregularInstance.id, instanceId)))
 			.get();
 		if (!inst) throw new Error(`No irregular instance ${instanceId}`);
 
 		tx.update(schema.irregularInstance)
 			.set({ status: 'skipped' })
-			.where(eq(schema.irregularInstance.id, instanceId))
+			.where(and(owns(schema.irregularInstance), eq(schema.irregularInstance.id, instanceId)))
 			.run();
 
-		advanceNextDue(tx, inst.irregularId, inst.dueOn);
+		advanceNextDue(userId, tx, inst.irregularId, inst.dueOn);
 	});
 }
 
-export function rescheduleInstance(instanceId: number, dueOn: string): void {
+export function rescheduleInstance(userId: number, instanceId: number, dueOn: string): void {
+	const { db, owns } = forUser(userId);
 	db.update(schema.irregularInstance)
 		.set({ dueOn, status: dueOn <= new Date().toISOString().slice(0, 10) ? 'due' : 'projected' })
-		.where(eq(schema.irregularInstance.id, instanceId))
+		.where(and(owns(schema.irregularInstance), eq(schema.irregularInstance.id, instanceId)))
 		.run();
 }
 
 /** A transaction handle from `db.transaction()` — same query surface, no `$client`. */
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type Tx = Parameters<Parameters<Scope['db']['transaction']>[0]>[0];
 
 /** Keep `irregular.next_due_on` pointing at the earliest live instance. */
-function advanceNextDue(tx: Tx, irregularId: number, settledDueOn: string): void {
+function advanceNextDue(userId: number, tx: Tx, irregularId: number, settledDueOn: string): void {
+	const { owns } = forUser(userId);
 	const next = tx
 		.select({ dueOn: schema.irregularInstance.dueOn })
 		.from(schema.irregularInstance)
 		.where(
 			and(
+				owns(schema.irregularInstance),
 				eq(schema.irregularInstance.irregularId, irregularId),
 				ne(schema.irregularInstance.status, 'settled'),
 				ne(schema.irregularInstance.status, 'skipped')
@@ -340,23 +360,27 @@ function advanceNextDue(tx: Tx, irregularId: number, settledDueOn: string): void
 	if (next) {
 		tx.update(schema.irregular)
 			.set({ nextDueOn: next.dueOn })
-			.where(eq(schema.irregular.id, irregularId))
+			.where(and(owns(schema.irregular), eq(schema.irregular.id, irregularId)))
 			.run();
 		return;
 	}
 
 	// A one-off with nothing left is finished; a recurring one just needs its
 	// next window materialised on the following nightly run.
-	const irr = tx.select().from(schema.irregular).where(eq(schema.irregular.id, irregularId)).get();
+	const irr = tx
+		.select()
+		.from(schema.irregular)
+		.where(and(owns(schema.irregular), eq(schema.irregular.id, irregularId)))
+		.get();
 	if (irr?.cadence === 'one_off') {
 		tx.update(schema.irregular)
 			.set({ archivedAt: new Date().toISOString() })
-			.where(eq(schema.irregular.id, irregularId))
+			.where(and(owns(schema.irregular), eq(schema.irregular.id, irregularId)))
 			.run();
 	} else if (irr) {
 		tx.update(schema.irregular)
 			.set({ nextDueOn: addDays(settledDueOn, 1) })
-			.where(eq(schema.irregular.id, irregularId))
+			.where(and(owns(schema.irregular), eq(schema.irregular.id, irregularId)))
 			.run();
 	}
 }
@@ -367,8 +391,8 @@ export interface MonthlyOutflow {
 }
 
 /** Expected outflow per month for the next 12 — reveals the spikes you forget. */
-export function monthlyOutflow(today: string, months = 12): MonthlyOutflow[] {
-	const rows = unsettledDueBy(today, addMonths(today, months));
+export function monthlyOutflow(userId: number, today: string, months = 12): MonthlyOutflow[] {
+	const rows = unsettledDueBy(userId, today, addMonths(today, months));
 	const buckets = new Map<string, number>();
 	for (let i = 0; i < months; i++) buckets.set(addMonths(today, i).slice(0, 7), 0);
 	for (const r of rows) {
@@ -390,7 +414,8 @@ export interface EstimateError {
  * calibration on F10, and the delta is the only honest way to know whether the
  * 25% padding is enough for *you*.
  */
-export function estimateAccuracy(sinceDate: string): EstimateError[] {
+export function estimateAccuracy(userId: number, sinceDate: string): EstimateError[] {
+	const { db, owns } = forUser(userId);
 	return db
 		.select({
 			label: schema.irregular.label,
@@ -402,6 +427,7 @@ export function estimateAccuracy(sinceDate: string): EstimateError[] {
 		.innerJoin(schema.irregular, eq(schema.irregular.id, schema.irregularInstance.irregularId))
 		.where(
 			and(
+				owns(schema.irregularInstance),
 				eq(schema.irregularInstance.status, 'settled'),
 				gte(schema.irregularInstance.settledOn, sinceDate)
 			)
