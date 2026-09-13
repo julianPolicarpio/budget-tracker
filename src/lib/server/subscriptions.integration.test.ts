@@ -58,6 +58,8 @@ beforeEach(() => m.sqlite.exec('DELETE FROM subscription;'));
 describe('annualised cost', () => {
 	it('reports what each cadence really costs per year', () => {
 		const cases = [
+			['weekly', 28_500, 1_482_000],
+			['fortnightly', 28_500, 741_000],
 			['monthly', 28_500, 342_000],
 			['quarterly', 28_500, 114_000],
 			['semiannual', 28_500, 57_000],
@@ -72,6 +74,16 @@ describe('annualised cost', () => {
 		m.subs.createSubscription(1, GOOGLE);
 		// The whole point of the cull headline: same fact, different volume.
 		expect(m.subs.annualisedTotalMinor(1)).toBe(342_000);
+	});
+
+	it('annualises weekly against 52 occurrences, never × 12 — and fortnightly against 26, never × 24 (Spec §5.1)', () => {
+		// ₱200 a week is the laundry example the feature exists for. 200 * 12
+		// (the fractional-month bug) would read ₱2,400; the honest figure is
+		// exactly ₱10,400.
+		expect(m.subs.annualisedMinor({ amountMinor: 20_000, cadence: 'weekly' })).toBe(1_040_000);
+		expect(m.subs.annualisedMinor({ amountMinor: 20_000, cadence: 'fortnightly' })).toBe(
+			520_000
+		);
 	});
 });
 
@@ -186,6 +198,47 @@ describe('decisions', () => {
 	});
 });
 
+describe('weekly and fortnightly cadences advance by days, not fractional months (Spec §5.1)', () => {
+	it('advances a weekly charge by exactly 7 days across a month boundary', () => {
+		expect(
+			m.subs.advanceCharge({ nextChargeOn: '2027-08-27', cadence: 'weekly' })
+		).toBe('2027-09-03');
+	});
+
+	it('advances a fortnightly charge by exactly 14 days', () => {
+		expect(
+			m.subs.advanceCharge({ nextChargeOn: '2027-08-27', cadence: 'fortnightly' })
+		).toBe('2027-09-10');
+	});
+
+	it('regression: monthly, quarterly, semiannual and annual still advance by calendar months', () => {
+		expect(m.subs.advanceCharge({ nextChargeOn: '2027-01-31', cadence: 'monthly' })).toBe(
+			'2027-02-28'
+		);
+		expect(m.subs.advanceCharge({ nextChargeOn: '2027-08-23', cadence: 'quarterly' })).toBe(
+			'2027-11-23'
+		);
+		expect(m.subs.advanceCharge({ nextChargeOn: '2027-08-23', cadence: 'semiannual' })).toBe(
+			'2028-02-23'
+		);
+		expect(m.subs.advanceCharge({ nextChargeOn: '2027-08-23', cadence: 'annual' })).toBe(
+			'2028-08-23'
+		);
+	});
+
+	it('keepSubscription rolls a weekly commitment forward by 7 days, not a month', () => {
+		const id = m.subs.createSubscription(1, {
+			...GOOGLE,
+			label: 'Weekly cleaner',
+			cadence: 'weekly',
+			nextChargeOn: '2027-08-20',
+			cancelByOn: '2027-08-20'
+		});
+		m.subs.keepSubscription(1, id, '2027-08-27');
+		expect(m.subs.getSubscription(1, id)!.nextChargeOn).toBe('2027-08-27');
+	});
+});
+
 describe('the cull (Spec §267)', () => {
 	it('flags a never-used subscription as stale', () => {
 		m.subs.createSubscription(1, GOOGLE);
@@ -244,6 +297,32 @@ describe('what the split must reserve', () => {
 			isEssential: true
 		});
 		expect(m.subs.commitmentsPerPeriod(1, 7)).toBe(17_248);
+	});
+
+	it('reserves exactly ₱200 for a weekly ₱200 subscription over a 7-day period — not the 7.02-day approximation', () => {
+		// Before Spec §5.1, a weekly cadence was stored as a fraction of a
+		// month (7 / (365.25/12) ≈ 0.2296) and multiplied back out by
+		// AVG_DAYS_PER_MONTH, landing on ~7.02 days between charges instead of
+		// 7 — close enough to hide in most amounts, wrong on principle.
+		m.subs.createSubscription(1, {
+			...GOOGLE,
+			label: 'Weekly cleaner',
+			amountMinor: 20_000,
+			cadence: 'weekly',
+			isEssential: true
+		});
+		expect(m.subs.commitmentsPerPeriod(1, 7)).toBe(20_000);
+	});
+
+	it('reserves exactly ₱200 for a fortnightly ₱200 subscription over a 14-day period', () => {
+		m.subs.createSubscription(1, {
+			...GOOGLE,
+			label: 'Fortnightly cleaner',
+			amountMinor: 20_000,
+			cadence: 'fortnightly',
+			isEssential: true
+		});
+		expect(m.subs.commitmentsPerPeriod(1, 14)).toBe(20_000);
 	});
 
 	it('does not lurch as the charge date approaches', () => {

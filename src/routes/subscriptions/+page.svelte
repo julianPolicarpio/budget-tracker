@@ -8,7 +8,7 @@
 	import SubscriptionEdit from '$lib/components/SubscriptionEdit.svelte';
 	import { enhance } from '$app/forms';
 	import { CATEGORIES } from '$lib/categories';
-	import { CADENCE_LABELS } from '$lib/subscription-cadence';
+	import { CADENCE_LABELS, CADENCE_STEP, type Cadence } from '$lib/subscription-cadence';
 	import { formatMoney } from '$lib/money';
 	import type { ActionData, PageData } from './$types';
 
@@ -22,14 +22,13 @@
 		return formatMoney(m, { minorUnits, symbol, group: true }).replace(/\.00$/, '');
 	}
 
-	const MONTHS: Record<string, number> = {
-		monthly: 1,
-		quarterly: 3,
-		semiannual: 6,
-		annual: 12
+	// Mirrors subscriptions.ts's annualisedMinor(): day-based cadences (weekly,
+	// fortnightly) annualise against a 52-week year, never against a monthly
+	// divisor — the fractional-month bug Spec §5.1 fixes.
+	const annualise = (s: { amountMinor: number; cadence: string }) => {
+		const step = CADENCE_STEP[s.cadence as Cadence];
+		return step.kind === 'days' ? s.amountMinor * (364 / step.n) : s.amountMinor * (12 / step.n);
 	};
-	const annualise = (s: { amountMinor: number; cadence: string }) =>
-		s.amountMinor * (12 / MONTHS[s.cadence]);
 
 	function dayLabel(iso: string): string {
 		return new Intl.DateTimeFormat('en-GB', {

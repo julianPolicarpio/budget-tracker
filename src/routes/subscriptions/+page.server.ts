@@ -5,6 +5,7 @@ import { localToday } from '$lib/server/clock';
 import { parseMoney } from '$lib/money';
 import { isCategory } from '$lib/categories';
 import {
+	advanceCharge,
 	annualisedTotalMinor,
 	cancelSubscription,
 	createSubscription,
@@ -18,13 +19,7 @@ import {
 	restoreSubscription,
 	getSubscription
 } from '$lib/server/subscriptions';
-import {
-	CADENCES,
-	CADENCE_MONTHS,
-	DEFAULT_LEAD_DAYS,
-	type Cadence
-} from '$lib/subscription-cadence';
-import { addMonths } from '$lib/server/irregulars';
+import { CADENCES, DEFAULT_LEAD_DAYS, type Cadence } from '$lib/subscription-cadence';
 import type { PageServerLoad } from './$types';
 
 /** YYYY-MM-DD, and a real date — `2027-02-31` parses but does not exist. */
@@ -164,7 +159,7 @@ export const actions: Actions = {
 		if (rawFreeUntil && !isDate(rawFreeUntil)) {
 			return fail(400, { field: 'freeUntil', error: 'Give a real date, or leave it blank.' });
 		}
-		const nextChargeOn = rawFreeUntil || addMonths(today, CADENCE_MONTHS[cadence]);
+		const nextChargeOn = rawFreeUntil || advanceCharge({ nextChargeOn: today, cadence });
 
 		// A trial's deadline is longer than one billing cycle away, so the
 		// cadence-scaled lead would be far too short to act on. Give it a month.

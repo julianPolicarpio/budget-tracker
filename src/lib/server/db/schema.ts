@@ -165,7 +165,16 @@ export const irregular = sqliteTable(
 		amountMinor: integer('amount_minor').notNull(),
 		isEstimate: integer('is_estimate').notNull(),
 		cadence: text('cadence', {
-			enum: ['one_off', 'monthly', 'quarterly', 'semiannual', 'annual', 'every_n_years']
+			enum: [
+				'one_off',
+				'weekly',
+				'fortnightly',
+				'monthly',
+				'quarterly',
+				'semiannual',
+				'annual',
+				'every_n_years'
+			]
 		}).notNull(),
 		cadenceN: integer('cadence_n'),
 		nextDueOn: text('next_due_on').notNull(),
@@ -193,7 +202,7 @@ export const subscription = sqliteTable(
 		amountMinor: integer('amount_minor').notNull(),
 		taxMinor: integer('tax_minor'),
 		cadence: text('cadence', {
-			enum: ['monthly', 'quarterly', 'semiannual', 'annual']
+			enum: ['weekly', 'fortnightly', 'monthly', 'quarterly', 'semiannual', 'annual']
 		}).notNull(),
 		nextChargeOn: text('next_charge_on').notNull(),
 		trialEndsOn: text('trial_ends_on'),

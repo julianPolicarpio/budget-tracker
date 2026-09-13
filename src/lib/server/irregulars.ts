@@ -30,36 +30,90 @@ export function paddedAmount(amountMinor: number, paddingPct: number): number {
 }
 
 /**
+ * Default padding on creation, by how often the cost is observed (Spec
+ * §5.3). Consulted only when a new irregular is created with no explicit
+ * padding of its own — the column keeps its existing meaning, and no
+ * existing row is ever rewritten to match a new default.
+ *
+ * This deliberately overrides `migrations/0003_phase3.sql`'s "Not negotiable
+ * downward" for the DEFAULT only. That comment guards against underestimating
+ * a cost you rarely see — F10's finding is specifically about costs that feel
+ * like one-offs — and a weekly cost is observed 52 times a year, with none of
+ * that bias. Recorded as an owner decision in Spec §2.2, not something to
+ * re-litigate per irregular.
+ */
+export const DEFAULT_PADDING_PCT: Record<Cadence, number> = {
+	one_off: 25,
+	weekly: 5,
+	fortnightly: 10,
+	monthly: 15,
+	quarterly: 20,
+	semiannual: 25,
+	annual: 25,
+	every_n_years: 25
+};
+
+/**
+ * An irregular's cadence acquires a kind, same as a subscription's (Spec
+ * §5.1): `one_off` has no step at all, weekly/fortnightly step in days, and
+ * everything else steps in whole months. Day-based and month-based cadences
+ * cannot share a divisor — that shared divisor is exactly how the old
+ * fractional-month bug happened — so this returns which arithmetic applies
+ * rather than a single number.
+ */
+function cadenceStep(
+	cadence: Cadence,
+	cadenceN: number | null
+): { kind: 'days' | 'months'; n: number } | null {
+	switch (cadence) {
+		case 'one_off':
+			return null;
+		case 'weekly':
+			return { kind: 'days', n: 7 };
+		case 'fortnightly':
+			return { kind: 'days', n: 14 };
+		case 'monthly':
+			return { kind: 'months', n: 1 };
+		case 'quarterly':
+			return { kind: 'months', n: 3 };
+		case 'semiannual':
+			return { kind: 'months', n: 6 };
+		case 'annual':
+			return { kind: 'months', n: 12 };
+		case 'every_n_years':
+			return { kind: 'months', n: 12 * Math.max(1, cadenceN ?? 1) };
+	}
+}
+
+/**
  * Project an irregular's due dates forward from `from`.
  *
  * Month arithmetic clamps to the end of short months: an annual cost due on
  * the 31st recurs on the 28th in February rather than silently rolling into
- * March, which would move the cost into the wrong accrual window.
+ * March, which would move the cost into the wrong accrual window. A weekly or
+ * fortnightly cadence never goes near month arithmetic at all — it advances
+ * with `addDays`, so a due date lands on the same day of the week forever,
+ * unaffected by month length or a leap year's extra day.
  */
 export function projectDueDates(
 	irregular: Pick<Irregular, 'cadence' | 'cadenceN' | 'nextDueOn'>,
 	from: string,
 	to: string
 ): string[] {
-	const stepMonths: Record<Cadence, number | null> = {
-		one_off: null,
-		monthly: 1,
-		quarterly: 3,
-		semiannual: 6,
-		annual: 12,
-		every_n_years: 12 * Math.max(1, irregular.cadenceN ?? 1)
-	};
-
-	const step = stepMonths[irregular.cadence];
+	const step = cadenceStep(irregular.cadence, irregular.cadenceN);
 	if (step === null) {
 		return irregular.nextDueOn >= from && irregular.nextDueOn <= to ? [irregular.nextDueOn] : [];
 	}
 
 	const out: string[] = [];
-	// Bounded: 24 months of a monthly cadence is 24 dates; the guard is for a
-	// nonsense cadence_n, not for normal data.
+	// Bounded: 24 months of a monthly cadence is 24 dates, and the 24-month
+	// horizon at the shortest (weekly) cadence is ~104 dates — well inside
+	// 400. The guard is for a nonsense cadence_n, not for normal data.
 	for (let i = 0; i < 400; i++) {
-		const due = addMonths(irregular.nextDueOn, step * i);
+		const due =
+			step.kind === 'days'
+				? addDays(irregular.nextDueOn, step.n * i)
+				: addMonths(irregular.nextDueOn, step.n * i);
 		if (due > to) break;
 		if (due >= from) out.push(due);
 	}

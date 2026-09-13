@@ -17,7 +17,7 @@ import { and, asc, eq, isNotNull, isNull, lte } from 'drizzle-orm';
 import { forUser, schema } from './db';
 import { addDays, daysBetween } from './clock';
 import { addMonths } from './irregulars';
-import { CADENCE_MONTHS, type Cadence } from '$lib/subscription-cadence';
+import { CADENCE_STEP, type Cadence } from '$lib/subscription-cadence';
 
 export type { Cadence };
 
@@ -37,14 +37,34 @@ export const FINAL_ALERT_DAYS = 7;
  * figure never becomes an allocation — it exists to be read aloud during the
  * cull, where "₱285 a month" and "₱3,420 a year" are the same fact told at two
  * very different volumes.
+ *
+ * Day-based cadences annualise the same way, against a 52-week year (364
+ * days) rather than the calendar's 365/365.25: a weekly charge bills exactly
+ * 52 times and a fortnightly one exactly 26, matching how a payroll cycle is
+ * normally described. Never `× 12` on a weekly figure and never `× 24` on a
+ * fortnightly one — both are the fractional-month bug wearing a different
+ * divisor.
  */
 export function annualisedMinor(sub: Pick<Subscription, 'amountMinor' | 'cadence'>): number {
-	return sub.amountMinor * (12 / CADENCE_MONTHS[sub.cadence as Cadence]);
+	const step = CADENCE_STEP[sub.cadence as Cadence];
+	return step.kind === 'days'
+		? sub.amountMinor * (364 / step.n)
+		: sub.amountMinor * (12 / step.n);
 }
 
-/** The next charge after this one, at the subscription's own cadence. */
+/**
+ * The next charge after this one, at the subscription's own cadence.
+ *
+ * Cadence has a kind (Spec §5.1): a day-based cadence advances with
+ * `addDays`, a calendar-based one with `addMonths`. `addMonths(date, 12/52)`
+ * — the old behaviour — produced a fractional month index for a weekly
+ * subscription, which is why the two kinds no longer share a code path.
+ */
 export function advanceCharge(sub: Pick<Subscription, 'nextChargeOn' | 'cadence'>): string {
-	return addMonths(sub.nextChargeOn, CADENCE_MONTHS[sub.cadence as Cadence]);
+	const step = CADENCE_STEP[sub.cadence as Cadence];
+	return step.kind === 'days'
+		? addDays(sub.nextChargeOn, step.n)
+		: addMonths(sub.nextChargeOn, step.n);
 }
 
 export function listSubscriptions(userId: number, includeCancelled = false): Subscription[] {
@@ -99,6 +119,12 @@ export interface NewSubscription {
  * invariant 7 forbids — that rule governs INCOME, where pay cycles genuinely
  * do not divide the year evenly. A monthly bill genuinely bills twelve times a
  * year, and this figure is a cost reservation, never an arrival projection.
+ *
+ * A day-based cadence needs none of this averaging: a weekly bill is due
+ * every 7 days, exactly, not every `1 * (365.25/12)` = 30.4 days. Using the
+ * calendar-month approximation there was the original bug — `0.23 months *
+ * AVG_DAYS_PER_MONTH` is 7.02 days, not 7 — so day-based cadences take their
+ * step directly and skip the average entirely.
  */
 const AVG_DAYS_PER_MONTH = 365.25 / 12;
 
@@ -112,7 +138,8 @@ export function commitmentsPerPeriod(userId: number, daysPerPeriod: number, toda
 			// to make sure that day is not a surprise.
 			if (today && sub.trialEndsOn !== null && sub.trialEndsOn > today) return sum;
 
-			const daysBetweenCharges = CADENCE_MONTHS[sub.cadence as Cadence] * AVG_DAYS_PER_MONTH;
+			const step = CADENCE_STEP[sub.cadence as Cadence];
+			const daysBetweenCharges = step.kind === 'days' ? step.n : step.n * AVG_DAYS_PER_MONTH;
 			return sum + (sub.amountMinor * daysPerPeriod) / daysBetweenCharges;
 		}, 0)
 	);

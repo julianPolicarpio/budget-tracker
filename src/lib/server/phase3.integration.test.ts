@@ -161,11 +161,65 @@ describe('projection', () => {
 		expect(at('annual')).toEqual(['2026-09-01', '2027-09-01']);
 		expect(at('every_n_years', 3)).toEqual(['2026-09-01']);
 		expect(at('one_off')).toEqual(['2026-09-01']);
+		// Day-based cadences (Spec §5.1): 103 weekly and 52 fortnightly instances
+		// land in the same two-year window, none of it computed via addMonths.
+		expect(at('weekly')).toHaveLength(103);
+		expect(at('fortnightly')).toHaveLength(52);
 	});
 
 	it('applies the mandatory padding to the accrued amount', () => {
 		expect(m.irregulars.paddedAmount(400_000, 25)).toBe(500_000);
 		expect(m.irregulars.paddedAmount(333, 25)).toBe(416);
+	});
+
+	it('advances a weekly irregular by exactly 7 days across a month boundary', () => {
+		const dates = m.irregulars.projectDueDates(
+			{ cadence: 'weekly' as never, cadenceN: null, nextDueOn: '2026-08-27' },
+			'2026-08-27',
+			'2026-09-10'
+		);
+		// 27 Aug -> 3 Sep -> 10 Sep: a plain 7-day step across the month
+		// boundary, never addMonths, and never clamped to a shorter month.
+		expect(dates).toEqual(['2026-08-27', '2026-09-03', '2026-09-10']);
+	});
+
+	it('advances a weekly irregular by exactly 7 days across a leap year', () => {
+		// 2028 is a leap year. A day-based cadence steps through 29 Feb as an
+		// ordinary day; addMonths would never even reach it for a weekly cost.
+		const dates = m.irregulars.projectDueDates(
+			{ cadence: 'weekly' as never, cadenceN: null, nextDueOn: '2028-02-22' },
+			'2028-02-22',
+			'2028-03-07'
+		);
+		expect(dates).toEqual(['2028-02-22', '2028-02-29', '2028-03-07']);
+	});
+
+	it('advances a fortnightly irregular by exactly 14 days', () => {
+		const dates = m.irregulars.projectDueDates(
+			{ cadence: 'fortnightly' as never, cadenceN: null, nextDueOn: '2026-08-27' },
+			'2026-08-27',
+			'2026-09-24'
+		);
+		expect(dates).toEqual(['2026-08-27', '2026-09-10', '2026-09-24']);
+	});
+});
+
+describe('padding defaults scale with observation frequency (Spec §5.3)', () => {
+	it('gives each cadence its own default padding percentage on creation', () => {
+		// Overrides migrations/0003's "Not negotiable downward" for the DEFAULT
+		// only — a weekly cost is observed 52 times a year and carries none of
+		// F10's underestimation bias toward rarely-seen costs. Existing rows
+		// (padding_pct DEFAULT 25 in the schema) are never touched by this.
+		expect(m.irregulars.DEFAULT_PADDING_PCT).toEqual({
+			one_off: 25,
+			weekly: 5,
+			fortnightly: 10,
+			monthly: 15,
+			quarterly: 20,
+			semiannual: 25,
+			annual: 25,
+			every_n_years: 25
+		});
 	});
 });
 

@@ -6,17 +6,36 @@
  * pull better-sqlite3 into the client bundle — SvelteKit blocks that, correctly.
  */
 
-export type Cadence = 'monthly' | 'quarterly' | 'semiannual' | 'annual';
+export type Cadence = 'weekly' | 'fortnightly' | 'monthly' | 'quarterly' | 'semiannual' | 'annual';
 
-/** Months between charges. No 'one_off' — a charge that happens once is an Irregular. */
-export const CADENCE_MONTHS: Record<Cadence, number> = {
-	monthly: 1,
-	quarterly: 3,
-	semiannual: 6,
-	annual: 12
+/**
+ * Cadence acquires a kind (Spec §5.1).
+ *
+ * A whole-months divisor (the old `CADENCE_MONTHS`) cannot express a weekly or
+ * fortnightly cycle without producing a fractional month index, and every
+ * consumer of that figure — `advanceCharge()`, `annualisedMinor()`,
+ * `commitmentsPerPeriod()` — divided by it. Day-based cadences advance with
+ * `addDays` and never touch a month at all; calendar-based ones keep
+ * `addMonths`. There is deliberately no shared divisor between the two kinds:
+ * that shared divisor is the bug this table replaces.
+ *
+ * `CADENCE_MONTHS` is gone, not kept alongside — two sources of truth for one
+ * fact is how the fractional-month bug comes back.
+ */
+export type CadenceKind = 'days' | 'months';
+
+export const CADENCE_STEP: Record<Cadence, { kind: CadenceKind; n: number }> = {
+	weekly: { kind: 'days', n: 7 },
+	fortnightly: { kind: 'days', n: 14 },
+	monthly: { kind: 'months', n: 1 },
+	quarterly: { kind: 'months', n: 3 },
+	semiannual: { kind: 'months', n: 6 },
+	annual: { kind: 'months', n: 12 }
 };
 
 export const CADENCE_LABELS: Record<Cadence, string> = {
+	weekly: 'Weekly',
+	fortnightly: 'Fortnightly',
 	monthly: 'Monthly',
 	quarterly: 'Quarterly',
 	semiannual: 'Twice a year',
@@ -33,8 +52,18 @@ export const CADENCES = Object.keys(CADENCE_LABELS) as Cadence[];
  * means the warning fires the day after you record it and every month
  * thereafter. The lead has to be a fraction of the cycle, not a constant, or
  * it stops being a warning and becomes wallpaper.
+ *
+ * Weekly and fortnightly carry the same reasoning taken further: a lead of
+ * 1 and 2 days respectively is proportionally similar to the monthly lead
+ * (roughly a quarter of the cycle) and cannot be 0 — `migrations/0005`
+ * declares `CHECK (lead_days > 0)`. Silencing a weekly commitment is not that
+ * column's job anyway: `pendingAlerts()` only alerts when `cancelByOn` is
+ * set, so a non-negotiable with no cancel-by date never alerts regardless of
+ * lead.
  */
 export const DEFAULT_LEAD_DAYS: Record<Cadence, number> = {
+	weekly: 1,
+	fortnightly: 2,
 	monthly: 7,
 	quarterly: 14,
 	semiannual: 30,
