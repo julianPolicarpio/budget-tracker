@@ -402,11 +402,31 @@ export const jobRun = sqliteTable(
 	(t) => [primaryKey({ columns: [t.userId, t.jobKey, t.ranFor] })]
 );
 
+/**
+ * A signed-in session (migration 0009, Spec §3.3). Deliberately opaque and
+ * random — `id` is 32 bytes of crypto.randomBytes as hex, never anything
+ * derived or guessable — so revoking one is a DELETE, not a key rotation.
+ * `userId` has no `.default(1)`: unlike the twenty tenanted tables backfilled
+ * by migration 0008, no session existed before this one, so there is no
+ * owner-1 default to carry forward.
+ */
+export const session = sqliteTable(
+	'session',
+	{
+		id: text('id').primaryKey(),
+		userId: integer('user_id').notNull(),
+		createdAt: text('created_at').notNull(),
+		expiresAt: text('expires_at').notNull()
+	},
+	(t) => [index('idx_session_user').on(t.userId)]
+);
+
 export type AppUser = typeof appUser.$inferSelect;
 export type Settings = typeof settings.$inferSelect;
 export type Period = typeof period.$inferSelect;
 export type Txn = typeof txn.$inferSelect;
 export type Review = typeof review.$inferSelect;
+export type Session = typeof session.$inferSelect;
 export type Account = typeof account.$inferSelect;
 export type Goal = typeof goal.$inferSelect;
 export type Transfer = typeof transfer.$inferSelect;
