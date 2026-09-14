@@ -1,9 +1,18 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { enhance } from '$app/forms';
 	import LogOverlay from '$lib/components/LogOverlay.svelte';
+	import EntryResolution from '$lib/components/EntryResolution.svelte';
 	import { CATEGORIES, categoryLabel, type CategoryKey } from '$lib/categories';
-	import { LogEntry, logSubmit, type EntrySnapshot } from '$lib/log-entry.svelte';
+	import {
+		LogEntry,
+		TripEntry,
+		logSubmit,
+		resolveLive,
+		tripSubmit,
+		type TripSnapshot
+	} from '$lib/log-entry.svelte';
+	import type { ParsedEntry, ParseContext } from '$lib/entry-parser';
 	import { formatMoney, parseMoney } from '$lib/money';
 	import type { ActionData, PageData } from './$types';
 
@@ -11,12 +20,23 @@
 
 	const view = $derived(data.view);
 
+	// The router's context arrives once per load, refreshed automatically
+	// after every save (Spec §5.6-§5.7, task A4a's design). Only absent when
+	// there is no view to attach a log form to at all.
+	const emptyParseContext: ParseContext = { dict: {}, learned: {}, commitments: [] };
+	const parseContext = $derived(data.parseContext ?? emptyParseContext);
+
 	const DESKTOP = '(min-width: 48rem)';
 
 	/*
 	 * Two shells, one entry. Mobile keeps the resident form (§8.0b.4 — the log
 	 * happens in bed, one-handed); desktop summons an overlay so nothing
 	 * competes with the hero (§8.0b.2).
+	 *
+	 * Two entry SHAPES, not two entry FORKS: `LogEntry` is the typed field
+	 * this task builds, and `TripEntry` is the pre-A4 amount/category/planned
+	 * form kept only for a trip in progress — see `log-entry.svelte.ts`'s
+	 * module doc for why A4a's router does not reach trips at all.
 	 *
 	 * Neither defaults the planned/unplanned flag. A default makes the unplanned
 	 * ratio mean something different depending on which device you were holding,
@@ -26,16 +46,19 @@
 	 * save action; all that goes away is bare Enter recording a judgement you
 	 * never made.
 	 */
-	const mobileEntry = new LogEntry('');
-	const desktopEntry = new LogEntry('');
+	const mobileEntry = new LogEntry();
+	const desktopEntry = new LogEntry();
+	const mobileTripEntry = new TripEntry('');
+	const desktopTripEntry = new TripEntry('');
 
+	let mobileFormEl = $state<HTMLFormElement | undefined>();
 	let nothingForm = $state<HTMLFormElement | undefined>();
 	let overlayOpen = $state(false);
 	let isDesktop = $state(false);
 	let toast = $state<string | null>(null);
 	let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
-	function describe(s: EntrySnapshot): string {
+	function describeTrip(s: TripSnapshot): string {
 		const minorUnits = view!.trip ? view!.trip.currency.minorUnits : view!.currency.minorUnits;
 		const symbol = view!.trip ? view!.trip.currency.symbol : view!.currency.symbol;
 		const parsed = parseMoney(s.amount, minorUnits);
@@ -46,11 +69,41 @@
 		}`;
 	}
 
-	function onSaved(s: EntrySnapshot) {
+	function onTripSaved(s: TripSnapshot) {
 		overlayOpen = false;
-		toast = describe(s);
+		toast = describeTrip(s);
 		clearTimeout(toastTimer);
 		toastTimer = setTimeout(() => (toast = null), 2400);
+	}
+
+	/** The typed entry's toast text, by resolved kind (Spec §5.6's table). */
+	function describeEntry(s: ParsedEntry): string {
+		switch (s.kind) {
+			case 'transaction':
+				return `Logged ${money(s.amountMinor ?? 0)} · ${s.english} · ${categoryLabel(s.root)}`;
+			case 'existing_commitment':
+				return s.commitment.kind === 'subscription'
+					? 'Already covered — nothing logged.'
+					: `Logged ${money(s.amountMinor ?? 0)} against ${s.commitment.label}.`;
+			case 'new_commitment':
+				return `Added ${s.english} as a new commitment.`;
+			case 'transfer':
+				return 'Noted — nothing logged.';
+			default:
+				return 'Saved.';
+		}
+	}
+
+	function onDesktopEntrySaved(s: ParsedEntry) {
+		overlayOpen = false;
+		toast = describeEntry(s);
+		clearTimeout(toastTimer);
+		toastTimer = setTimeout(() => (toast = null), 2400);
+	}
+
+	async function submitMobileEntry() {
+		await tick();
+		mobileFormEl?.requestSubmit();
 	}
 
 	onMount(() => {
@@ -71,7 +124,8 @@
 			// ⌘K / Ctrl+K opens it empty.
 			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
 				event.preventDefault();
-				desktopEntry.reset();
+				if (view?.trip) desktopTripEntry.reset();
+				else desktopEntry.reset();
 				overlayOpen = true;
 				return;
 			}
@@ -99,8 +153,13 @@
 
 			if (/^[0-9]$/.test(event.key)) {
 				event.preventDefault();
-				desktopEntry.reset();
-				desktopEntry.amount = event.key;
+				if (view?.trip) {
+					desktopTripEntry.reset();
+					desktopTripEntry.amount = event.key;
+				} else {
+					desktopEntry.reset();
+					desktopEntry.text = event.key;
+				}
 				overlayOpen = true;
 			}
 		}
@@ -129,16 +188,24 @@
 	// The live home-currency figure under the keypad is not a convenience — it
 	// is the countermeasure. Foreign currency weakens the pain of paying, and
 	// the conversion is the friction the unfamiliar notes removed (F11).
-	const activeEntry = $derived(overlayOpen ? desktopEntry : mobileEntry);
+	// Trip-form only — the typed entry never runs during a trip (see this
+	// file's TripEntry/LogEntry split, above).
+	const activeTripEntry = $derived(overlayOpen ? desktopTripEntry : mobileTripEntry);
 
 	const homeEquivalent = $derived.by(() => {
-		const amount = activeEntry.amount;
+		const amount = activeTripEntry.amount;
 		if (!view?.trip || amount.trim() === '') return null;
 		const typed = parseMoney(amount, view.trip.currency.minorUnits);
 		if (typed === null || typed <= 0) return null;
 		const scale = 10 ** (view.currency.minorUnits - view.trip.currency.minorUnits);
 		return Math.round(typed * view.trip.fxRateToHome * scale);
 	});
+
+	/** The mobile field's live resolution — the desktop overlay computes its
+	 * own from the same `parseContext`, since only one shell is ever open. */
+	const mobileResolved = $derived<ParsedEntry>(
+		view ? resolveLive(mobileEntry, parseContext, view.currency.minorUnits) : { kind: 'empty' }
+	);
 
 	/**
 	 * Hero figures drop trailing zero decimals. The band is rounded to the
@@ -423,7 +490,12 @@
 			{#if view.entries.length > 0}
 				<ul>
 					{#each view.entries as entry, i (entry.id)}
-						<li class="entry" class:just-saved={form?.saved && i === 0}>
+						<li
+						class="entry"
+						class:just-saved={form?.saved &&
+							(form?.wrote === undefined || form.wrote === 'transaction') &&
+							i === 0}
+					>
 							<span class="entry-cat">
 								{CATEGORIES.find((c) => c.key === entry.category)?.label}
 								{#if !entry.planned}
@@ -454,29 +526,30 @@
 		</section>
 
 		<!-- ── The log strip. Bottom third, thumb-first, always visible. ──── -->
-		<form class="log" method="POST" action="?/logTxn" use:enhance={logSubmit(mobileEntry)}>
-			<input type="hidden" name="clientUuid" value={mobileEntry.clientUuid} />
+		{#if view.trip}
+			<!-- A trip in progress still logs through the pre-A4 amount/category/
+			     planned form: `commitResolvedEntry()` has no trip fields at all
+			     (see log-entry.svelte.ts's module doc). Unchanged by A4b. -->
+			<form class="log" method="POST" action="?/logTxn" use:enhance={tripSubmit(mobileTripEntry)}>
+				<input type="hidden" name="clientUuid" value={mobileTripEntry.clientUuid} />
 
-			<label class="amount">
-				<span class="sr-only">Amount spent</span>
-				<span class="amount-sym" aria-hidden="true"
-					>{view.trip ? view.trip.currency.symbol : view.currency.symbol}</span
-				>
-				<!-- svelte-ignore a11y_autofocus -->
-				<input
-					name="amount"
-					bind:value={mobileEntry.amount}
-					type="text"
-					inputmode={view.trip && view.trip.currency.minorUnits === 0 ? 'numeric' : 'decimal'}
-					autocomplete="off"
-					autocorrect="off"
-					spellcheck="false"
-					placeholder="0"
-					autofocus
-				/>
-			</label>
+				<label class="amount">
+					<span class="sr-only">Amount spent</span>
+					<span class="amount-sym" aria-hidden="true">{view.trip.currency.symbol}</span>
+					<!-- svelte-ignore a11y_autofocus -->
+					<input
+						name="amount"
+						bind:value={mobileTripEntry.amount}
+						type="text"
+						inputmode={view.trip.currency.minorUnits === 0 ? 'numeric' : 'decimal'}
+						autocomplete="off"
+						autocorrect="off"
+						spellcheck="false"
+						placeholder="0"
+						autofocus
+					/>
+				</label>
 
-			{#if view.trip}
 				<!--
 					Not a convenience. Foreign currency weakens the pain of paying,
 					and this conversion is the friction the unfamiliar notes
@@ -489,40 +562,93 @@
 						Home equivalent appears as you type
 					{/if}
 				</p>
-			{/if}
 
-			<fieldset class="chips">
-				<legend class="sr-only">Category</legend>
-				{#each CATEGORIES as cat (cat.key)}
-					<label class="chip" class:on={mobileEntry.category === cat.key}>
-						<input type="radio" name="category" value={cat.key} bind:group={mobileEntry.category} />
-						{cat.label}
+				<fieldset class="chips">
+					<legend class="sr-only">Category</legend>
+					{#each CATEGORIES as cat (cat.key)}
+						<label class="chip" class:on={mobileTripEntry.category === cat.key}>
+							<input type="radio" name="category" value={cat.key} bind:group={mobileTripEntry.category} />
+							{cat.label}
+						</label>
+					{/each}
+				</fieldset>
+
+				<fieldset class="seg">
+					<legend class="sr-only">Was this planned?</legend>
+					<label class="seg-opt" class:on={mobileTripEntry.planned === '1'}>
+						<input type="radio" name="planned" value="1" bind:group={mobileTripEntry.planned} />
+						Planned
 					</label>
-				{/each}
-			</fieldset>
+					<label class="seg-opt" class:on={mobileTripEntry.planned === '0'}>
+						<input type="radio" name="planned" value="0" bind:group={mobileTripEntry.planned} />
+						Unplanned
+					</label>
+				</fieldset>
 
-			<fieldset class="seg">
-				<legend class="sr-only">Was this planned?</legend>
-				<label class="seg-opt" class:on={mobileEntry.planned === '1'}>
-					<input type="radio" name="planned" value="1" bind:group={mobileEntry.planned} />
-					Planned
+				<button class="save" type="submit" disabled={!mobileTripEntry.ready}>Save entry</button>
+
+				{#if form?.error}
+					<p class="err" role="alert">{form.error}</p>
+				{/if}
+			</form>
+		{:else}
+			<!--
+				One field replaces three (task A4b). The user types a word and an
+				amount, in either order; the resolution line beneath states what
+				the app understood and, last on the line, what it will do to
+				today's number (Spec §5.6).
+			-->
+			<form
+				class="log"
+				method="POST"
+				action="?/logEntry"
+				bind:this={mobileFormEl}
+				use:enhance={logSubmit(mobileEntry, () => mobileResolved)}
+			>
+				<input type="hidden" name="clientUuid" value={mobileEntry.clientUuid} />
+				<input type="hidden" name="planned" value={mobileEntry.planned} />
+				<input type="hidden" name="commitmentMode" value={mobileEntry.commitmentMode} />
+				<input type="hidden" name="taughtWord" value={mobileEntry.taughtWord} />
+				<input type="hidden" name="taughtEnglish" value={mobileEntry.taughtEnglish} />
+				<input type="hidden" name="taughtRoot" value={mobileEntry.taughtRoot} />
+
+				<label class="entry-label" for="log-mobile">
+					<span class="sr-only">What did you spend on?</span>
 				</label>
-				<label class="seg-opt" class:on={mobileEntry.planned === '0'}>
-					<input type="radio" name="planned" value="0" bind:group={mobileEntry.planned} />
-					Unplanned
-				</label>
-			</fieldset>
+				<!-- svelte-ignore a11y_autofocus -->
+				<input
+					id="log-mobile"
+					class="entry-field"
+					name="text"
+					bind:value={mobileEntry.text}
+					type="text"
+					autocomplete="off"
+					autocorrect="off"
+					spellcheck="false"
+					placeholder="kape 65"
+					onkeydown={(e) => {
+						if (e.key === 'Enter') e.preventDefault();
+					}}
+					autofocus
+				/>
 
-			<button class="save" type="submit" disabled={!mobileEntry.ready}>Save entry</button>
+				<EntryResolution
+					entry={mobileEntry}
+					resolved={mobileResolved}
+					minorUnits={view.currency.minorUnits}
+					symbol={view.currency.symbol}
+					onSubmit={submitMobileEntry}
+				/>
 
-			{#if form?.error}
-				<p class="err" role="alert">{form.error}</p>
-			{/if}
-		</form>
+				{#if form?.error}
+					<p class="err" role="alert">{form.error}</p>
+				{/if}
+			</form>
+		{/if}
 
 		<!-- Desktop only: the idle screen is the hero, so the way in is a hint. -->
 		<p class="kbd-hint">
-			<kbd>⌘K</kbd> to log · start typing a number
+			<kbd>⌘K</kbd> to log · start typing
 			{#if !view.dayClosed}
 				· <kbd>N</kbd> for a zero day
 			{/if}
@@ -530,14 +656,17 @@
 	</main>
 
 	<LogOverlay
+		tripEntry={desktopTripEntry}
 		entry={desktopEntry}
 		bind:open={overlayOpen}
 		currency={view.currency}
 		tripCurrency={view.trip ? view.trip.currency : null}
 		{homeEquivalent}
+		ctx={parseContext}
 		entries={view.entries}
 		onClose={() => (overlayOpen = false)}
-		{onSaved}
+		{onTripSaved}
+		onEntrySaved={onDesktopEntrySaved}
 	/>
 
 	{#if toast}
@@ -999,6 +1128,32 @@
 	.amount input:focus {
 		outline: none;
 		border-bottom-color: var(--accent);
+	}
+
+	/*
+	 * The typed entry (task A4b, non-trip only). One field, sans-serif —
+	 * `EntryResolution` beneath it is what turns mono, the split that is the
+	 * design's whole signature (Spec §5.6).
+	 */
+	.entry-field {
+		width: 100%;
+		min-height: var(--touch);
+		padding: 0.6rem 0.75rem;
+		background: var(--surface);
+		border: 1px solid var(--hairline-strong);
+		border-radius: 0.5rem;
+		color: var(--ink);
+		font-family: var(--font-ui);
+		font-size: 1.0625rem;
+	}
+
+	.entry-field::placeholder {
+		color: var(--ink-muted);
+	}
+
+	.entry-field:focus {
+		outline: none;
+		border-color: var(--accent);
 	}
 
 	.chips,

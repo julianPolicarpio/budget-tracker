@@ -15,6 +15,7 @@ import { tripDailyFigure } from '$lib/allowance';
 import { addWaitItem, resolveWaitItem } from '$lib/server/rules';
 import { isCategory } from '$lib/categories';
 import { parseMoney } from '$lib/money';
+import { answerWord, buildParseContext, commitResolvedEntry, resolveEntry } from '$lib/server/entry';
 import type { PageServerLoad } from './$types';
 
 // Which commands the empty states should quote. Telling a containerised user
@@ -25,7 +26,16 @@ const inContainer = existsSync('/.dockerenv') || process.env.SPLIT_IN_CONTAINER 
 export const load: PageServerLoad = ({ locals }) => {
 	const ctx = todayContext(locals.userId);
 	if (!ctx) return { view: null, hasPeriod: false, inContainer };
-	return { view: ctx.view, hasPeriod: ctx.period !== null, inContainer };
+	return {
+		view: ctx.view,
+		hasPeriod: ctx.period !== null,
+		inContainer,
+		// The typed-entry router's context (Spec §5.6-§5.7, task A4a), fetched
+		// once so the resolution line runs entirely in the browser — no
+		// network round trip per keystroke. Refreshed automatically after
+		// every save, because `use:enhance`'s `update()` reruns this load.
+		parseContext: buildParseContext(locals.userId)
+	};
 };
 
 export const actions: Actions = {
@@ -125,6 +135,93 @@ export const actions: Actions = {
 
 		closeLogDay(locals.userId, spentOn, now);
 		return { saved: true };
+	},
+
+	/**
+	 * Log one typed string through A4a's record router (Spec §5.6). Home
+	 * currency only — a trip in progress still logs through `logTxn` above,
+	 * because `commitResolvedEntry()` has no trip fields at all (see
+	 * `log-entry.svelte.ts`'s module doc for why that boundary is deliberate
+	 * rather than an oversight).
+	 *
+	 * The text is re-resolved here from scratch rather than trusting the
+	 * client's own `parseEntry()` result: the browser's copy of `label_map`
+	 * and live commitments can be a save or two stale, and this is the one
+	 * place that actually has to be right — a wrong KIND corrupts the band.
+	 */
+	logEntry: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
+		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
+
+		const form = await request.formData();
+		const text = String(form.get('text') ?? '');
+		const clientUuid = String(form.get('clientUuid') ?? '') || null;
+		const rawPlanned = String(form.get('planned') ?? '');
+		const rawCommitmentMode = String(form.get('commitmentMode') ?? '');
+		const taughtWord = String(form.get('taughtWord') ?? '');
+		const taughtEnglish = String(form.get('taughtEnglish') ?? '');
+		const taughtRoot = String(form.get('taughtRoot') ?? '');
+
+		// Persist a freshly-answered category question BEFORE resolving, so
+		// this same save benefits from it (Spec §5.9 step 1 -> step 2) rather
+		// than requiring the word be typed a second time.
+		if (taughtWord && taughtEnglish && isCategory(taughtRoot)) {
+			answerWord(locals.userId, taughtWord, taughtEnglish, taughtRoot);
+		}
+
+		const resolved = resolveEntry(locals.userId, text);
+
+		if (resolved.kind === 'empty' || resolved.kind === 'need_word') {
+			return fail(400, { field: 'text', error: 'Type what you spent on.', rawText: text });
+		}
+		if (resolved.kind === 'ask_kind' || resolved.kind === 'ask_category') {
+			return fail(400, { field: 'text', error: 'Answer the question before saving.', rawText: text });
+		}
+
+		const now = new Date();
+		const today = localToday(settings.timezone, now);
+
+		let planned: boolean | undefined;
+		if (resolved.kind === 'transaction') {
+			if (rawPlanned !== '0' && rawPlanned !== '1') {
+				return fail(400, { field: 'planned', error: 'Mark it planned or unplanned.', rawText: text });
+			}
+			planned = rawPlanned === '1';
+		}
+
+		let commitmentMode: 'same' | 'same_essential' | 'varies' | undefined;
+		if (resolved.kind === 'new_commitment') {
+			if (rawCommitmentMode !== 'same' && rawCommitmentMode !== 'same_essential' && rawCommitmentMode !== 'varies') {
+				return fail(400, {
+					field: 'commitmentMode',
+					error: 'Choose same, same and non-negotiable, or varies.',
+					rawText: text
+				});
+			}
+			commitmentMode = rawCommitmentMode;
+		}
+
+		let result;
+		try {
+			result = commitResolvedEntry(locals.userId, resolved, {
+				today,
+				now,
+				clientUuid,
+				planned,
+				commitmentMode
+			});
+		} catch (err) {
+			// A repeat of the same client_uuid is a double-submit, not an error —
+			// same handling as `logTxn` above. `commitResolvedEntry()`'s
+			// `transaction` branch is the only one that writes `client_uuid`
+			// (server/entry.ts), so this is the only branch that can throw here.
+			const message = err instanceof Error ? err.message : '';
+			if (!message.includes('UNIQUE') || !message.includes('client_uuid')) throw err;
+			result = { ok: true as const, wrote: 'transaction' as const };
+		}
+		if (!result.ok) return fail(400, { field: 'text', error: result.error, rawText: text });
+
+		return { saved: true, wrote: result.wrote };
 	},
 
 	/**

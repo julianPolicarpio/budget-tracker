@@ -5,23 +5,43 @@
 	 * On a wide screen a resident form makes Today read as a data-entry app and
 	 * competes with the hero, which §8.0b.2 forbids outright. So the form is
 	 * summoned instead — and summoning it costs nothing, because any digit
-	 * opens it with that digit already in the amount. §8.1.2's "never behind a
-	 * tap" is about thumb reach in bed; on a keyboard the equivalent is that it
-	 * opens on the first character of the thing you were going to type anyway.
+	 * opens it with that digit already in the amount/text. §8.1.2's "never
+	 * behind a tap" is about thumb reach in bed; on a keyboard the equivalent
+	 * is that it opens on the first character of the thing you were going to
+	 * type anyway.
+	 *
+	 * Two forms live here (see `log-entry.svelte.ts`'s module doc for why):
+	 * the NEW typed entry (task A4b) when no trip is active, and the OLD
+	 * amount/category/planned form — unchanged — while a trip is, because
+	 * A4a's router has no trip fields at all.
 	 */
 	import { tick } from 'svelte';
 	import { enhance } from '$app/forms';
 	import { CATEGORIES } from '$lib/categories';
 	import { formatMoney } from '$lib/money';
-	import { logSubmit, type EntrySnapshot, type LogEntry } from '$lib/log-entry.svelte';
+	import type { ParseContext, ParsedEntry } from '$lib/entry-parser';
+	import {
+		logSubmit,
+		resolveLive,
+		tripSubmit,
+		LogEntry,
+		TripEntry,
+		type TripSnapshot
+	} from '$lib/log-entry.svelte';
+	import EntryResolution from './EntryResolution.svelte';
 
 	interface Props {
+		tripEntry: TripEntry;
 		entry: LogEntry;
 		open: boolean;
 		currency: { symbol: string; minorUnits: number };
-		/** Trip currency when one is active — the keypad follows the price tag. */
+		/** Trip currency when one is active — the keypad follows the price tag,
+		 * and its presence is what switches this overlay to the OLD form. */
 		tripCurrency?: { symbol: string; minorUnits: number } | null;
 		homeEquivalent?: number | null;
+		/** The typed-entry router's context (Spec §5.6-§5.7) — unused while a
+		 * trip is active. */
+		ctx: ParseContext;
 		entries: {
 			id: number;
 			amountMinor: number;
@@ -30,55 +50,63 @@
 			planned: boolean;
 		}[];
 		onClose: () => void;
-		onSaved: (s: EntrySnapshot) => void;
+		onTripSaved: (s: TripSnapshot) => void;
+		onEntrySaved: (s: ParsedEntry) => void;
 	}
 
 	let {
+		tripEntry,
 		entry,
 		open = $bindable(),
 		currency,
 		tripCurrency = null,
 		homeEquivalent = null,
+		ctx,
 		entries,
 		onClose,
-		onSaved
+		onTripSaved,
+		onEntrySaved
 	}: Props = $props();
 
 	const keypad = $derived(tripCurrency ?? currency);
+	const resolved = $derived(resolveLive(entry, ctx, currency.minorUnits));
 
-	let amountEl = $state<HTMLInputElement | undefined>();
+	let tripAmountEl = $state<HTMLInputElement | undefined>();
+	let textEl = $state<HTMLInputElement | undefined>();
+	let formEl = $state<HTMLFormElement | undefined>();
+
 	/**
-	 * Which row the keyboard is driving. Digits build the amount while it is
-	 * `amount`; the 1–8 category shortcuts only bind once there is an amount to
-	 * attach them to, which is what stops a leading "2" being read as Food out.
+	 * Which row the keyboard is driving, TRIP FORM ONLY. Digits build the
+	 * amount while it is `amount`; the 1–8 category shortcuts only bind once
+	 * there is an amount to attach them to, which is what stops a leading "2"
+	 * being read as Food out. The new typed field has no such mode: every
+	 * character is just more of the sentence.
 	 */
 	let mode = $state<'amount' | 'category'>('amount');
 
 	$effect(() => {
 		if (open) {
 			mode = 'amount';
-			queueMicrotask(() => amountEl?.focus());
+			queueMicrotask(() => (tripCurrency ? tripAmountEl : textEl)?.focus());
 		}
 	});
 
 	function toCategoryMode() {
-		if (entry.amount.trim() === '') return;
+		if (tripEntry.amount.trim() === '') return;
 		mode = 'category';
-		amountEl?.blur();
+		tripAmountEl?.blur();
 	}
 
 	function toAmountMode() {
 		mode = 'amount';
-		queueMicrotask(() => amountEl?.focus());
+		queueMicrotask(() => tripAmountEl?.focus());
 	}
 
 	function cycleCategory(step: number) {
-		const i = CATEGORIES.findIndex((c) => c.key === entry.category);
+		const i = CATEGORIES.findIndex((c) => c.key === tripEntry.category);
 		const next = (i + step + CATEGORIES.length) % CATEGORIES.length;
-		entry.category = CATEGORIES[i === -1 && step > 0 ? 0 : next].key;
+		tripEntry.category = CATEGORIES[i === -1 && step > 0 ? 0 : next].key;
 	}
-
-	let formEl = $state<HTMLFormElement | undefined>();
 
 	/**
 	 * Always await the flush before submitting.
@@ -90,9 +118,17 @@
 	 * reads the state object rather than the form. Silent, and on the single
 	 * most diagnostic flag in the app.
 	 */
-	async function save() {
+	async function saveTrip() {
 		await tick();
-		if (entry.ready) formEl?.requestSubmit();
+		if (tripEntry.ready) formEl?.requestSubmit();
+	}
+
+	/** The typed entry's one save path: every action button in
+	 * `EntryResolution` both chooses AND saves — this is what it calls after
+	 * setting the relevant field. */
+	async function submitEntry() {
+		await tick();
+		formEl?.requestSubmit();
 	}
 
 	function onKeydown(event: KeyboardEvent) {
@@ -104,19 +140,23 @@
 			return;
 		}
 
-		// P and U set the flag AND save, from either row. They are intercepted
-		// even inside the amount field, which is a number field anyway.
+		// The rest of this handler is the OLD trip-form keyboard scheme. The
+		// typed field takes free text — any of "p", "u", "1".."8" or Tab may be
+		// part of a word the user is typing, so none of them can be
+		// intercepted globally the way the trip form's dedicated fields allow.
+		if (!tripCurrency) return;
+
 		const letter = event.key.toLowerCase();
 		if ((letter === 'p' || letter === 'u') && !event.metaKey && !event.ctrlKey) {
 			event.preventDefault();
-			entry.planned = letter === 'p' ? '1' : '0';
-			void save();
+			tripEntry.planned = letter === 'p' ? '1' : '0';
+			void saveTrip();
 			return;
 		}
 
 		if (event.key === 'Enter') {
 			event.preventDefault();
-			void save();
+			void saveTrip();
 			return;
 		}
 
@@ -130,7 +170,7 @@
 		if (mode === 'category') {
 			if (/^[1-8]$/.test(event.key)) {
 				event.preventDefault();
-				entry.category = CATEGORIES[Number(event.key) - 1].key;
+				tripEntry.category = CATEGORIES[Number(event.key) - 1].key;
 				return;
 			}
 			if (event.key === 'Backspace') {
@@ -161,78 +201,109 @@
 	></div>
 
 	<div class="panel" data-motion="fade" role="dialog" aria-modal="true" aria-label="Log an entry">
-		<form
-			bind:this={formEl}
-			method="POST"
-			action="?/logTxn"
-			use:enhance={logSubmit(entry, onSaved)}
-		>
-			<input type="hidden" name="clientUuid" value={entry.clientUuid} />
+		{#if tripCurrency}
+			<form bind:this={formEl} method="POST" action="?/logTxn" use:enhance={tripSubmit(tripEntry, onTripSaved)}>
+				<input type="hidden" name="clientUuid" value={tripEntry.clientUuid} />
 
-			<!-- Amount -->
-			<label class="amount-row">
-				<span class="sr-only">Amount spent</span>
-				<span class="prefix" aria-hidden="true">{keypad.symbol}</span>
-				<input
-					bind:this={amountEl}
-					bind:value={entry.amount}
-					name="amount"
-					type="text"
-					inputmode={keypad.minorUnits === 0 ? 'numeric' : 'decimal'}
-					autocomplete="off"
-					autocorrect="off"
-					spellcheck="false"
-					placeholder="0"
-					onfocus={() => (mode = 'amount')}
-				/>
-			</label>
+				<!-- Amount -->
+				<label class="amount-row">
+					<span class="sr-only">Amount spent</span>
+					<span class="prefix" aria-hidden="true">{keypad.symbol}</span>
+					<input
+						bind:this={tripAmountEl}
+						bind:value={tripEntry.amount}
+						name="amount"
+						type="text"
+						inputmode={keypad.minorUnits === 0 ? 'numeric' : 'decimal'}
+						autocomplete="off"
+						autocorrect="off"
+						spellcheck="false"
+						placeholder="0"
+						onfocus={() => (mode = 'amount')}
+					/>
+				</label>
 
-			{#if tripCurrency}
 				<p class="equiv" aria-live="polite">
 					{homeEquivalent !== null
 						? `≈ ${money(homeEquivalent, currency)} at the rate you locked`
 						: 'Home equivalent appears as you type'}
 				</p>
-			{/if}
 
-			<!-- Categories, badged with their shortcut -->
-			<fieldset class="chips" class:armed={mode === 'category'}>
-				<legend class="sr-only">Category</legend>
-				{#each CATEGORIES as cat, i (cat.key)}
-					<label class="chip" class:on={entry.category === cat.key}>
-						<input type="radio" name="category" value={cat.key} bind:group={entry.category} />
-						<span class="badge">{i + 1}</span>
-						{cat.label}
+				<!-- Categories, badged with their shortcut -->
+				<fieldset class="chips" class:armed={mode === 'category'}>
+					<legend class="sr-only">Category</legend>
+					{#each CATEGORIES as cat, i (cat.key)}
+						<label class="chip" class:on={tripEntry.category === cat.key}>
+							<input type="radio" name="category" value={cat.key} bind:group={tripEntry.category} />
+							<span class="badge">{i + 1}</span>
+							{cat.label}
+						</label>
+					{/each}
+				</fieldset>
+
+				<!-- Planned / unplanned -->
+				<fieldset
+					class="seg"
+					class:armed={tripEntry.amount.trim() !== '' && tripEntry.category !== '' && tripEntry.planned === ''}
+				>
+					<legend class="sr-only">Was this planned?</legend>
+					<label class="seg-opt" class:on={tripEntry.planned === '1'}>
+						<input type="radio" name="planned" value="1" bind:group={tripEntry.planned} />
+						<span class="badge">P</span> Planned
 					</label>
-				{/each}
-			</fieldset>
+					<label class="seg-opt" class:on={tripEntry.planned === '0'}>
+						<input type="radio" name="planned" value="0" bind:group={tripEntry.planned} />
+						<span class="badge">U</span> Unplanned
+					</label>
+				</fieldset>
 
-			<!-- Planned / unplanned -->
-			<fieldset
-				class="seg"
-				class:armed={entry.amount.trim() !== '' && entry.category !== '' && entry.planned === ''}
-			>
-				<legend class="sr-only">Was this planned?</legend>
-				<label class="seg-opt" class:on={entry.planned === '1'}>
-					<input type="radio" name="planned" value="1" bind:group={entry.planned} />
-					<span class="badge">P</span> Planned
+				<div class="hint">
+					<span><kbd>0–9</kbd> amount</span>
+					<span><kbd>Tab</kbd> {mode === 'amount' ? 'to categories' : 'next category'}</span>
+					<span><kbd>1–8</kbd> category</span>
+					<span><kbd>P</kbd>/<kbd>U</kbd> flag and save</span>
+					<span><kbd>Esc</kbd> cancel</span>
+				</div>
+
+				<button class="sr-only" type="submit" disabled={!tripEntry.ready}>Save entry</button>
+			</form>
+		{:else}
+			<form bind:this={formEl} method="POST" action="?/logEntry" use:enhance={logSubmit(entry, () => resolved, onEntrySaved)}>
+				<input type="hidden" name="clientUuid" value={entry.clientUuid} />
+				<input type="hidden" name="planned" value={entry.planned} />
+				<input type="hidden" name="commitmentMode" value={entry.commitmentMode} />
+				<input type="hidden" name="taughtWord" value={entry.taughtWord} />
+				<input type="hidden" name="taughtEnglish" value={entry.taughtEnglish} />
+				<input type="hidden" name="taughtRoot" value={entry.taughtRoot} />
+
+				<label class="amount-row">
+					<span class="sr-only">What did you spend on?</span>
+					<input
+						bind:this={textEl}
+						bind:value={entry.text}
+						name="text"
+						type="text"
+						autocomplete="off"
+						autocorrect="off"
+						spellcheck="false"
+						placeholder="kape 65"
+						onkeydown={(e) => {
+							if (e.key === 'Enter') e.preventDefault();
+						}}
+					/>
 				</label>
-				<label class="seg-opt" class:on={entry.planned === '0'}>
-					<input type="radio" name="planned" value="0" bind:group={entry.planned} />
-					<span class="badge">U</span> Unplanned
-				</label>
-			</fieldset>
 
-			<div class="hint">
-				<span><kbd>0–9</kbd> amount</span>
-				<span><kbd>Tab</kbd> {mode === 'amount' ? 'to categories' : 'next category'}</span>
-				<span><kbd>1–8</kbd> category</span>
-				<span><kbd>P</kbd>/<kbd>U</kbd> flag and save</span>
-				<span><kbd>Esc</kbd> cancel</span>
-			</div>
+				<EntryResolution
+					{entry}
+					{resolved}
+					minorUnits={currency.minorUnits}
+					symbol={currency.symbol}
+					onSubmit={submitEntry}
+				/>
 
-			<button class="sr-only" type="submit" disabled={!entry.ready}>Save entry</button>
-		</form>
+				<p class="hint"><span><kbd>Esc</kbd> cancel</span></p>
+			</form>
+		{/if}
 
 		{#if entries.length > 0}
 			<!-- Today's entries live here rather than on the idle screen, so the
@@ -306,7 +377,7 @@
 		gap: 0.875rem;
 	}
 
-	/* ── Amount ───────────────────────────────────────────────────────── */
+	/* ── Amount / text row ────────────────────────────────────────────── */
 	.amount-row {
 		display: flex;
 		align-items: baseline;
@@ -326,12 +397,13 @@
 		background: none;
 		border: 0;
 		color: var(--ink);
-		font-family: inherit;
+		font-family: var(--font-ui);
 		font-size: 46px;
 		line-height: 1.05;
 		font-variant-numeric: proportional-nums;
 		caret-color: var(--accent);
 		padding: 0;
+		min-height: var(--touch);
 	}
 
 	.amount-row input:focus {
@@ -349,7 +421,7 @@
 		font-variant-numeric: tabular-nums;
 	}
 
-	/* ── Chips ────────────────────────────────────────────────────────── */
+	/* ── Chips (trip form only) ───────────────────────────────────────── */
 	.chips,
 	.seg {
 		border: 0;
