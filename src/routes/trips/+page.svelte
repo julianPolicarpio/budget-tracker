@@ -55,7 +55,7 @@
 				<p class="muted">
 					left of {money(envelope)}
 					{#if a.trip.bufferDrawMinor > 0}
-						(including {money(a.trip.bufferDrawMinor)} drawn from Buffer)
+						(including {money(a.trip.bufferDrawMinor)} drawn from the Emergency fund)
 					{/if}
 					· {dayLabel(a.trip.startsOn)} – {dayLabel(a.trip.endsOn)} · {a.trip.tripTz}
 				</p>
@@ -125,7 +125,7 @@
 										text: () => 'actual',
 										dx: 6,
 										textAnchor: 'start',
-										fill: 'var(--series-1)'
+										fill: 'var(--series-1-fill)'
 									}),
 									Plot.text([a.burndown.at(-1)], {
 										x: (d: { date: string }) => new Date(d.date),
@@ -133,7 +133,7 @@
 										text: () => 'pace',
 										dx: 6,
 										textAnchor: 'start',
-										fill: 'var(--series-2)'
+										fill: 'var(--series-2-fill)'
 									})
 								]
 							})
@@ -239,7 +239,7 @@
 							<ol>
 								<li>Shorten it.</li>
 								<li>Downgrade it.</li>
-								<li>Draw the shortfall from Buffer, with an IOU.</li>
+								<li>Draw the shortfall from the Emergency fund, with an IOU.</li>
 							</ol>
 							{#if coveringId === p.trip.id}
 								<form method="POST" action="?/coverShortfall" use:enhance>
@@ -269,11 +269,11 @@
 											<span class="field-input"><input name="iouRepayBy" type="date" /></span>
 										</label>
 									</div>
-									<button class="primary" type="submit">Draw from Buffer with an IOU</button>
+									<button class="primary" type="submit">Draw from Emergency fund with an IOU</button>
 								</form>
 							{:else}
 								<button class="ghost" type="button" onclick={() => (coveringId = p.trip.id)}>
-									Draw from Buffer
+									Draw from the Emergency fund
 								</button>
 							{/if}
 						</div>
@@ -502,7 +502,7 @@
 		inset-block: 0;
 		left: 0;
 		width: var(--w);
-		background: var(--series-1);
+		background: var(--series-1-fill);
 		border-radius: 1px;
 	}
 

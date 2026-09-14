@@ -197,7 +197,7 @@
 				</p>
 				{#if short}
 					<p class="lede">
-						Below 1.0 is the leading indicator that Buffer is about to get raided.
+						Below 1.0 is the leading indicator that your Emergency fund is about to get raided.
 						{#if data.coverage.firstAtRisk}
 							<strong>{data.coverage.firstAtRisk.label}</strong> on
 							{dayLabel(data.coverage.firstAtRisk.dueOn)} is the one that bounces first.
@@ -235,7 +235,7 @@
 						Plot.barY(data.outflow, {
 							x: 'month',
 							y: 'expectedMinor',
-							fill: 'var(--series-1)',
+							fill: 'var(--series-1-fill)',
 							rx: 1
 						}),
 						Plot.ruleY([0], { stroke: 'var(--hairline-strong)' })
@@ -290,7 +290,7 @@
 									text: () => 'accrued',
 									dx: 6,
 									textAnchor: 'start',
-									fill: 'var(--series-1)'
+									fill: 'var(--series-1-fill)'
 								}),
 								Plot.text([data.history.at(-1)], {
 									x: (d: { endsOn: string }) => new Date(d.endsOn),
@@ -298,7 +298,7 @@
 									text: () => 'required',
 									dx: 6,
 									textAnchor: 'start',
-									fill: 'var(--series-2)'
+									fill: 'var(--series-2-fill)'
 								})
 							]
 						})
@@ -395,13 +395,13 @@
 						Plot.dot(data.accuracy, {
 							y: 'label',
 							x: 'expectedMinor',
-							fill: 'var(--series-1)',
+							fill: 'var(--series-1-fill)',
 							r: 5
 						}),
 						Plot.dot(data.accuracy, {
 							y: 'label',
 							x: 'actualMinor',
-							fill: 'var(--series-2)',
+							fill: 'var(--series-2-fill)',
 							r: 5
 						})
 					]

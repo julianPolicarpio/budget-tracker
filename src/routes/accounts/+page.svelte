@@ -215,12 +215,12 @@
 		<!-- 3.3 The flow, drawn once so the mental model sticks. -->
 		<section class="block">
 			<p class="eyebrow">The split</p>
-			<pre class="flow" aria-label="Inflow splits into Bills, Spend, Irregulars, Buffer and Grow">
-INFLOW ──┬──▶ BILLS        auto-debits only, never thought about
-         ├──▶ SPEND        the one account you look at · debit card
-         ├──▶ IRREGULARS   1/12 of every annual cost, every month
-         ├──▶ BUFFER       different bank · no card · the friction is the point
-         └──▶ GROW         only once Buffer is done</pre>
+			<pre class="flow" aria-label="Income splits into Bills, Spending, Big bills, Emergency fund and Savings">
+INCOME ──┬──▶ BILLS            auto-debits only, never thought about
+         ├──▶ SPENDING         the one account you look at · debit card
+         ├──▶ BIG BILLS        1/12 of every annual cost, every month
+         ├──▶ EMERGENCY FUND   different bank · no card · the friction is the point
+         └──▶ SAVINGS          only once the emergency fund is done</pre>
 		</section>
 
 		<!-- 3.4 Transfer checklist -->
@@ -249,7 +249,7 @@ INFLOW ──┬──▶ BILLS        auto-debits only, never thought about
 					{/each}
 				</ul>
 				<p class="muted">
-					Only two of the five are known here. Bills, Buffer and Grow need the income split, which
+					Only two of the five are known here. Bills, Emergency fund and Savings need the income split, which
 					needs income sources — a subsystem Spec §13's roadmap never assigns to a phase.
 				</p>
 			{/if}
@@ -260,7 +260,7 @@ INFLOW ──┬──▶ BILLS        auto-debits only, never thought about
 			<p class="eyebrow">Open IOUs</p>
 			{#if data.ious.length === 0}
 				<p class="empty">
-					None open. Every move out of Irregulars, Buffer or Grow writes one — date, amount, why,
+					None open. Every move out of Big bills, Emergency fund or Savings writes one — date, amount, why,
 					and when it comes back.
 				</p>
 			{:else}
@@ -361,7 +361,7 @@ INFLOW ──┬──▶ BILLS        auto-debits only, never thought about
 			{#if data.goals.length === 0}
 				<p class="empty">
 					No goals yet. Partitioning savings into named sub-goals was worth roughly a third more
-					saved — and the name is doing the work, so "Rent if I lose my job" beats "Buffer" and
+					saved — and the name is doing the work, so "Rent if I lose my job" beats "Emergency fund" and
 					"Japan, March" beats "Travel".
 				</p>
 			{:else}
@@ -551,7 +551,7 @@ INFLOW ──┬──▶ BILLS        auto-debits only, never thought about
 		inset-block: 0;
 		left: 0;
 		width: var(--w);
-		background: var(--series-1);
+		background: var(--series-1-fill);
 		border-radius: 1px;
 	}
 

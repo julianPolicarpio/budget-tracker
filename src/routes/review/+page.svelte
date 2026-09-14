@@ -299,7 +299,7 @@
 							marks: [
 								Plot.barY(
 									data.trend.filter((t) => t.totalSpentMinor !== null),
-									{ x: 'label', y: 'totalSpentMinor', fill: 'var(--series-1)', rx: 1 }
+									{ x: 'label', y: 'totalSpentMinor', fill: 'var(--series-1-fill)', rx: 1 }
 								),
 								Plot.ruleY([0], { stroke: 'var(--hairline-strong)' })
 							]
@@ -397,7 +397,7 @@
 						<textarea
 							name="notes"
 							rows="3"
-							placeholder="Enrolment fee Thursday, ₱3,000 — from Irregulars"></textarea>
+							placeholder="Enrolment fee Thursday, ₱3,000 — from Big bills"></textarea>
 					</label>
 					<button class="primary" type="submit">Continue</button>
 				</form>
@@ -530,7 +530,7 @@
 								</td>
 							</tr>
 							<tr>
-								<th scope="row">Buffer weeks</th>
+								<th scope="row">Weeks covered</th>
 								<td>
 									{#if data.review.bufferWeeksX100 === null}
 										<span class="pending">
@@ -680,7 +680,7 @@
 		width: var(--w);
 		min-width: 2px;
 		border-radius: 1px;
-		background: var(--series-1, #3987e5);
+		background: var(--series-1-fill, #3a78bd);
 	}
 
 	.bar-val {
@@ -717,7 +717,7 @@
 		inset-block: 0;
 		left: 0;
 		width: var(--w);
-		background: var(--series-1, #3987e5);
+		background: var(--series-1-fill, #3a78bd);
 		border-radius: 1px;
 	}
 

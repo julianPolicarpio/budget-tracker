@@ -36,6 +36,25 @@
 	   eight colours across eight categories is the classic mistake (§8.6). */
 	--series-1: #3987e5;
 	--series-2: #d95926;
+
+	/*
+	 * The same two hues, tuned for AREA rather than for line.
+	 *
+	 * --series-1 is calibrated for a 2px stroke, a 0.6rem bar and small marks.
+	 * The identical colour across a 200px-square fill is a different amount of
+	 * colour, and in a palette that is otherwise warm monochrome it stops
+	 * reading as an accent and starts reading as the subject of the screen.
+	 * On a page whose whole job is not overstating figures, a bar that shouts
+	 * is a bar that lies.
+	 *
+	 * Lower lightness and chroma, same hue family. Not muted further: at
+	 * --series-1-fill: #41729c the dataviz validator failed the chroma floor
+	 * at 0.085 — "reads gray" — and a chart whose colour looks accidental is
+	 * worse than one that is loud. These values pass every check in both
+	 * modes, so there is one value per series and no theme branch to drift.
+	 */
+	--series-1-fill: #3a78bd;
+	--series-2-fill: #c0603a;
 	--status-good: #0ca30c;
 	--status-warning: #fab219;
 	--status-critical: #d03b3b;

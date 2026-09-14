@@ -34,7 +34,7 @@
 		},
 		{
 			key: 'bufferWeeksX100',
-			label: 'Buffer weeks',
+			label: 'Weeks covered',
 			target: 'rising to 6.0',
 			format: (v: number) => (v / 100).toFixed(1),
 			hint: 'Six weeks is the empirically derived threshold for the shock that actually happens.'
@@ -44,7 +44,7 @@
 			label: 'Funded',
 			target: '≥1.0 and staying there',
 			format: (v: number) => `${(v / 10_000).toFixed(2)}×`,
-			hint: 'Below 1.0 is the leading indicator that Buffer is about to be raided.'
+			hint: 'Below 1.0 is the leading indicator that your Emergency fund is about to be raided.'
 		},
 		{
 			key: 'saveRateBp',
@@ -220,7 +220,7 @@
 								<th scope="col">Spent</th>
 								<th scope="col">Unplanned</th>
 								<th scope="col">Adherence</th>
-								<th scope="col">Buffer wks</th>
+								<th scope="col">Weeks covered</th>
 								<th scope="col">Coverage</th>
 							</tr>
 						</thead>
