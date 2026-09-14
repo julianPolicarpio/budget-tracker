@@ -288,9 +288,20 @@ export function offlineLogSubmit(
 				return;
 			}
 			if (result.type === 'failure') {
-				// A real, online rejection (e.g. the server re-resolved the text
-				// differently) — safe to surface normally. The queued row is
-				// left in place either way (this function's own doc comment).
+				/*
+				 * An online rejection. The row STAYS queued — the entry is real and
+				 * discarding it would lose money the user typed — but the reason is
+				 * recorded on it, because some rejections are permanent.
+				 *
+				 * A wrong ORIGIN, or a word the server wants answered, will refuse
+				 * the identical replay every time. Without this the only symptom is
+				 * a count that never goes down while everything looks fine, which
+				 * is exactly how two entries sat refused for a day.
+				 */
+				const row = await queued;
+				const why =
+					(result.data as { error?: string } | undefined)?.error ?? 'The server refused it.';
+				if (row) await outbox.markFailed(row.id, why).finally(() => onQueueChanged?.());
 				await update({ reset: false });
 			}
 			// 'error' (no network at all): do nothing. See doc comment above.

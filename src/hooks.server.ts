@@ -53,7 +53,41 @@ function isPublicPath(pathname: string): boolean {
 	);
 }
 
+/**
+ * The configured origin, if there is one.
+ *
+ * adapter-node rejects any POST whose `Origin` header does not match `ORIGIN`.
+ * That check is worth keeping — without it any page in the browser could POST
+ * to a loopback-bound app — but it fails in a way that is very hard to read:
+ * the browser sends the origin of the PAGE, so visiting `127.0.0.1:3000` when
+ * ORIGIN says `localhost:3000` makes every form submission fail forever, with
+ * a message about cross-site requests that names neither URL.
+ *
+ * Observed in production, and made invisible by the offline outbox: the field
+ * cleared, the entry queued, the POST was refused, and the queue could never
+ * drain because a replay carries the same wrong origin. Two entries sat there
+ * for a day while the app looked like it was working.
+ */
+const CANONICAL_ORIGIN = process.env.ORIGIN?.trim() || null;
+
 export const handle: Handle = ({ event, resolve }) => {
+	/*
+	 * Redirecting the POST itself would not help — the Origin header comes from
+	 * the page that submitted it, not from this request's URL. So the fix is to
+	 * make sure a navigation never LANDS on the wrong host: send GETs to the
+	 * canonical origin, and every form on the page that follows is submitted
+	 * from the right one.
+	 */
+	if (CANONICAL_ORIGIN && event.request.method === 'GET') {
+		const want = new URL(CANONICAL_ORIGIN);
+		if (event.url.host !== want.host) {
+			const to = new URL(event.url);
+			to.protocol = want.protocol;
+			to.host = want.host;
+			redirect(307, to.toString());
+		}
+	}
+
 	if (authMode.kind === 'single-user') {
 		event.locals.userId = 1;
 		return resolve(event);

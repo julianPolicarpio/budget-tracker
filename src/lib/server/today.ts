@@ -50,6 +50,8 @@ export interface TodayView {
 	/** The physical record from F7: one cell per day, oldest first. */
 	strip: { date: string; logged: boolean }[];
 	streak: Streak;
+	/** Unlogged days in the last week, oldest first. Never includes today. */
+	missed: string[];
 	/** The week label of an outstanding weekly review, else null (Spec §8.1.7). */
 	reviewDue: string | null;
 	/**
@@ -288,6 +290,7 @@ export function todayContext(
 		dayClosed: allLogged.has(date),
 		strip,
 		streak: computeStreak(allLogged, date),
+		missed: missedDays(userId, date),
 		reviewDue: due?.label ?? null,
 		horizon,
 		subscriptionDue,
@@ -382,3 +385,79 @@ export { dailyAllowance };
 // Adding a balance, a category total or a precise remaining figure to
 // TodayView turns the next line into a compile error naming the field.
 type _withholdingGuard = Assert<DailySurfaceVerdict<TodayView>>;
+
+
+/**
+ * Unlogged days in the last `window` days, oldest first, excluding today.
+ *
+ * The catch-up that existed before this reached exactly ONE day: `catchUpDate`
+ * is yesterday, and only when the day before it was already logged. Miss a
+ * weekend and there was no path back at all — the streak broke for something
+ * you could not fix, and a week's spending simply left no trace.
+ *
+ * This reaches a week. It deliberately does NOT offer to log a week as a
+ * single figure, which is the shape Method Part V calls "pre-authorised
+ * lossy": finding 10 is that people underestimate weekly spending by roughly
+ * 30%, and names the debiaser as "predicting events rather than time
+ * periods". One field per DAY keeps you recalling purchases. One field per
+ * week would make the app understate your spending in the exact direction
+ * that makes it comfortable to read and wrong.
+ */
+export const CATCH_UP_WINDOW_DAYS = 7;
+
+export function missedDays(
+	userId: number,
+	today: string,
+	window = CATCH_UP_WINDOW_DAYS
+): string[] {
+	const { db, owns } = forUser(userId);
+	const from = addDays(today, -window);
+
+	const logged = new Set(
+		db
+			.select({ loggedOn: schema.logDay.loggedOn })
+			.from(schema.logDay)
+			.where(
+				and(
+					owns(schema.logDay),
+					gte(schema.logDay.loggedOn, from),
+					lte(schema.logDay.loggedOn, today)
+				)
+			)
+			.all()
+			.map((r) => r.loggedOn)
+	);
+
+	const out: string[] = [];
+	for (let i = window; i >= 1; i--) {
+		const d = addDays(today, -i);
+		if (!logged.has(d)) out.push(d);
+	}
+	return out;
+}
+
+/**
+ * How much of a date range was reconstructed after the fact rather than logged
+ * that night.
+ *
+ * `is_catchup` has been written on every log day since Phase 2 and nothing has
+ * ever read it, so a day rebuilt from memory counted as identical evidence to
+ * one typed at 11pm. Once catch-up reaches a week that stops being harmless:
+ * a review that cannot distinguish the two is a review quietly reporting
+ * fiction.
+ */
+export function reconstructionRate(
+	userId: number,
+	from: string,
+	to: string
+): { logged: number; reconstructed: number; total: number } {
+	const { db, owns } = forUser(userId);
+	const rows = db
+		.select({ isCatchup: schema.logDay.isCatchup })
+		.from(schema.logDay)
+		.where(and(owns(schema.logDay), gte(schema.logDay.loggedOn, from), lte(schema.logDay.loggedOn, to)))
+		.all();
+
+	const reconstructed = rows.filter((r) => r.isCatchup === 1).length;
+	return { logged: rows.length - reconstructed, reconstructed, total: rows.length };
+}

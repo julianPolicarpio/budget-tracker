@@ -5,6 +5,7 @@ import { forUser, schema } from '$lib/server/db';
 import {
 	catchUpEligible,
 	closeLogDay,
+	CATCH_UP_WINDOW_DAYS,
 	loadSettings,
 	openPeriodOn,
 	todayContext
@@ -342,6 +343,93 @@ export const actions: Actions = {
 		if (mode === 'catchup') closeLogDay(locals.userId, today, now);
 
 		return { caughtUp: true };
+	},
+
+	/**
+	 * Close one missed day (Spec §4.6, extended).
+	 *
+	 * The old catch-up reached exactly one day and offered one combined entry
+	 * for it. This takes a date and one of three honest answers, because those
+	 * are the three things that can actually be true about a day you did not
+	 * log, and collapsing them loses the difference:
+	 *
+	 *   entries  — you remember what you bought. Typed, parsed and dated to
+	 *              that day, then flagged `is_catchup` because it was recalled
+	 *              rather than caught at the moment of spending.
+	 *   nothing  — you affirm nothing was spent. Full detail, NOT flagged;
+	 *              nothing was surrendered.
+	 *   forgot   — you genuinely cannot remember. Flagged, no entries, and the
+	 *              review will say so rather than counting it as a clean day.
+	 *
+	 * Deliberately one day per submit, not a week in one figure. Finding 10:
+	 * people underestimate weekly spending by ~30%, and the named debiaser is
+	 * "predicting events rather than time periods". A single box for a week is
+	 * the shape that understates, in the direction that reads comfortably.
+	 */
+	catchUpDay: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
+		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
+
+		const form = await request.formData();
+		const date = String(form.get('date') ?? '');
+		const mode = String(form.get('mode') ?? '');
+		const text = String(form.get('text') ?? '').trim();
+
+		if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail(400, { error: 'Unknown day.' });
+		if (mode !== 'entries' && mode !== 'nothing' && mode !== 'forgot') {
+			return fail(400, { error: 'Unknown catch-up mode.' });
+		}
+
+		const now = new Date();
+		const today = localToday(activeTrip(locals.userId)?.tripTz ?? settings.timezone, now);
+
+		// Inside the window, and never today or the future. Today is logged the
+		// ordinary way; letting catch-up claim it would let a reconstructed
+		// entry masquerade as one made at the moment of spending.
+		if (date >= today || date < addDays(today, -CATCH_UP_WINDOW_DAYS)) {
+			return fail(409, { error: 'That day is outside the catch-up window.' });
+		}
+
+		if (mode === 'entries') {
+			if (!text) return fail(400, { error: 'Type what you remember, or pick one of the others.' });
+
+			/*
+			 * A missed day is usually several purchases, so one field per day has
+			 * to take several. Comma-separated, parsed independently.
+			 *
+			 * Resolve ALL of them before committing ANY. A day half-filed is
+			 * worse than one not filed: the log_day row would close, the row
+			 * would vanish from Today, and the entries that failed would be
+			 * silently gone with no way back to them.
+			 */
+			const parts = text
+				.split(',')
+				.map((t) => t.trim())
+				.filter(Boolean);
+
+			const resolved = parts.map((t) => resolveEntry(locals.userId, t));
+
+			const unanswered = resolved.findIndex(
+				(r) => r.kind === 'ask_category' || r.kind === 'ask_kind'
+			);
+			if (unanswered >= 0) {
+				return fail(400, {
+					error: `"${parts[unanswered]}" needs an answer first — log it tonight instead, or drop it from this line.`,
+					date
+				});
+			}
+
+			for (const r of resolved) {
+				const result = commitResolvedEntry(locals.userId, r, { today: date, now });
+				if (!result.ok) return fail(400, { error: result.error, date });
+			}
+		}
+
+		// `nothing` is the one mode that is not a reconstruction: you are
+		// asserting a fact about the day, at full detail.
+		closeLogDay(locals.userId, date, now, mode !== 'nothing');
+
+		return { caughtUpDay: date };
 	},
 
 	/** Remove a mistyped entry. Today's entries only — history is not editable here. */

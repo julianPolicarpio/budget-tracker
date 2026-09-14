@@ -67,6 +67,7 @@
 	 * rather than rendering an empty state.
 	 */
 	let queuedCount = $state(0);
+	let queueStuck = $state<string | null>(null);
 
 	/*
 	 * The door's destinations. Named for what a person would call them, with a
@@ -88,6 +89,11 @@
 	async function refreshQueuedCount() {
 		if (data.userId == null) return;
 		queuedCount = await outbox.count(data.userId);
+		// A queue that only counts hides a permanent refusal. Surface the reason
+		// from the oldest failed row so the number is never mysterious.
+		const rows = await outbox.list(data.userId);
+		const failed = rows.find((r) => r.lastError);
+		queueStuck = failed ? failed.lastError! : null;
 	}
 
 	/** Runs on `online` and on app open (task A5 item 4's two GUARANTEED
@@ -443,7 +449,7 @@
 			break for no reason (Spec §4.6). Each one disappears the moment it is
 			satisfied, so the idle screen really is the hero and nothing else.
 		-->
-		{#if view.reviewDue || view.streak.catchUpDate || view.pendingMoves || !view.dayClosed || view.entries.length === 0}
+		{#if view.reviewDue || view.missed.length > 0 || view.pendingMoves || !view.dayClosed || view.entries.length === 0}
 			<section class="prompts">
 				{#if view.reviewDue}
 					<a class="prompt" href="/review">
@@ -451,24 +457,55 @@
 						<span aria-hidden="true">→</span>
 					</a>
 				{/if}
-				{#if view.streak.catchUpDate}
+				{#if view.missed.length > 0}
 					<!--
-						Two buttons because they record two different facts, and the
-						only person who knows which one is true is the one who lived
-						the day. Offering just the lossy catch-up quietly forces a
-						zero-spend night to be filed as "details surrendered".
+						Catch-up, one row per missed day (Spec §4.6, extended).
+
+						It used to reach exactly one day, so a missed weekend was
+						permanently a hole and the streak broke for something you
+						could not fix.
+
+						One field PER DAY, never one for the week. Finding 10: people
+						underestimate weekly spending by ~30%, and the named debiaser
+						is "predicting events rather than time periods". A single box
+						for a week understates, in the direction that reads
+						comfortably and is wrong.
+
+						This is the same typed field as tonight's log, because it is
+						the same act — you are recalling purchases either way, just
+						further back.
 					-->
-					<form method="POST" action="?/catchUp" use:enhance class="catch-up">
-						<p class="catch-up-lede">Missed {dayLabel(view.streak.catchUpDate)}</p>
-						<button class="prompt" type="submit" name="mode" value="catchup">
-							File one combined entry
-							<span aria-hidden="true">→</span>
-						</button>
-						<button class="prompt quiet" type="submit" name="mode" value="nothing">
-							Nothing was spent that day
-							<span aria-hidden="true">→</span>
-						</button>
-					</form>
+					<div class="catch-up">
+						<p class="catch-up-lede">
+							{view.missed.length === 1
+								? `Missed ${dayLabel(view.missed[0])}`
+								: `Missed ${view.missed.length} days`}
+						</p>
+
+						{#each view.missed as d (d)}
+							<form method="POST" action="?/catchUpDay" use:enhance class="missed-row">
+								<input type="hidden" name="date" value={d} />
+								<span class="missed-day">{dayLabel(d)}</span>
+								<input
+									class="missed-text"
+									name="text"
+									type="text"
+									autocomplete="off"
+									placeholder="kape 65, grab 180"
+									aria-label="What you spent on {dayLabel(d)}"
+								/>
+								<button class="missed-file" type="submit" name="mode" value="entries">
+									File
+								</button>
+								<button class="missed-alt" type="submit" name="mode" value="nothing">
+									Nothing
+								</button>
+								<button class="missed-alt" type="submit" name="mode" value="forgot">
+									Can&rsquo;t recall
+								</button>
+							</form>
+						{/each}
+					</div>
 				{/if}
 				<!--
 					Closing the day is an action, not an entries-list item — and it
@@ -757,6 +794,16 @@
 				<p class="queue-note" role="status">
 					{queuedCount === 1 ? '1 entry waiting to send' : `${queuedCount} entries waiting to send`}
 				</p>
+				{#if queueStuck}
+					<!--
+						Refused, not merely waiting. Some refusals never resolve on
+						their own, so a count alone would sit there looking patient
+						while nothing was being saved.
+					-->
+					<p class="queue-stuck" role="alert">
+						Refused: {queueStuck}
+					</p>
+				{/if}
 			{/if}
 		{/if}
 
@@ -1447,6 +1494,76 @@
 		margin: 0;
 		color: var(--ink);
 		font-size: 0.875rem;
+	}
+
+	/* ── Catch-up rows (Spec §4.6) ───────────────────────────────────────
+	   One row per missed day. Deliberately plain: this is a chore, and dressing
+	   it up would make it look like something you are meant to enjoy. */
+
+	.missed-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0.4rem 0;
+		border-bottom: 1px solid var(--hairline);
+	}
+
+	.missed-row:last-child {
+		border-bottom: 0;
+	}
+
+	.missed-day {
+		flex: 0 0 4.5rem;
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
+		color: var(--ink-muted);
+	}
+
+	.missed-text {
+		flex: 1 1 8rem;
+		min-height: var(--touch);
+		padding: 0.4rem 0.6rem;
+		background: var(--surface);
+		border: 1px solid var(--hairline-strong);
+		border-radius: 0.375rem;
+		color: var(--ink);
+		font-family: var(--font-ui);
+		font-size: 0.9375rem;
+	}
+
+	.missed-file,
+	.missed-alt {
+		min-height: var(--touch);
+		padding: 0 0.7rem;
+		border-radius: 0.375rem;
+		font-family: inherit;
+		font-size: 0.8125rem;
+		cursor: pointer;
+	}
+
+	.missed-file {
+		background: var(--surface);
+		border: 1px solid var(--ink-muted);
+		color: var(--ink);
+	}
+
+	.missed-alt {
+		background: none;
+		border: 1px solid var(--hairline-strong);
+		color: var(--ink-muted);
+	}
+
+	.missed-file:hover,
+	.missed-alt:hover {
+		border-color: var(--ink);
+		color: var(--ink);
+	}
+
+	.queue-stuck {
+		margin: 0.25rem 0 0;
+		color: var(--critical-text, #ef7b7b);
+		font-size: 0.8125rem;
 	}
 
 	/* ── The door (Spec §9) ──────────────────────────────────────────────

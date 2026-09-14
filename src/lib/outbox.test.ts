@@ -12,7 +12,9 @@
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import { clear, count, enqueue, flush, list, remove, setStore, type QueuedEntry } from './outbox';
+import { clear, count, enqueue, flush, list, remove, setStore, type QueuedEntry,
+	markFailed
+} from './outbox';
 
 /** A store, not a mock — real add/list/remove/clear semantics, just backed
  * by an array instead of IndexedDB. */
@@ -28,6 +30,13 @@ function memoryStore() {
 		list: async (userId: number) => rows.filter((r) => r.userId === userId),
 		remove: async (id: number) => {
 			rows = rows.filter((r) => r.id !== id);
+		},
+		markFailed: async (id: number, error: string) => {
+			const row = rows.find((r) => r.id === id);
+			if (row) {
+				row.lastError = error;
+				row.attempts = (row.attempts ?? 0) + 1;
+			}
 		},
 		clear: async (userId?: number) => {
 			rows = userId === undefined ? [] : rows.filter((r) => r.userId !== userId);
@@ -206,5 +215,34 @@ describe('sign-out clears the queue', () => {
 
 		expect(await list(USER_A)).toHaveLength(0);
 		expect(await list(USER_B)).toHaveLength(1);
+	});
+});
+
+describe('a refused entry says why', () => {
+	it('records the reason and the attempt count without losing the entry', async () => {
+		setStore(memoryStore());
+		const row = await enqueue({
+			userId: 1,
+			text: 'kape 65',
+			planned: '0',
+			clientUuid: 'refused-1'
+		});
+
+		await markFailed(row.id, 'Cross-site POST form submissions are forbidden');
+		await markFailed(row.id, 'Cross-site POST form submissions are forbidden');
+
+		const [after] = await list(1);
+		// The entry survives: it is money the user typed, and discarding it to
+		// tidy the queue would lose it.
+		expect(after.text).toBe('kape 65');
+		expect(after.lastError).toContain('Cross-site');
+		expect(after.attempts).toBe(2);
+	});
+
+	it('leaves a never-attempted entry unmarked', async () => {
+		setStore(memoryStore());
+		await enqueue({ userId: 1, text: 'jeep 15', planned: '1', clientUuid: 'fresh-1' });
+		const [row] = await list(1);
+		expect(row.lastError).toBeUndefined();
 	});
 });

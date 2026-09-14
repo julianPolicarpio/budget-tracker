@@ -1,7 +1,7 @@
 import { fail, redirect, type Actions } from '@sveltejs/kit';
 import { forUser, schema } from '$lib/server/db';
 import { and, eq } from 'drizzle-orm';
-import { loadSettings } from '$lib/server/today';
+import { reconstructionRate, loadSettings } from '$lib/server/today';
 import { localToday, addDays } from '$lib/server/clock';
 import { lastCompleteWeek, weekDays, weekOf } from '$lib/server/week';
 import { logAdherenceBp, topThree, weekActuals } from '$lib/server/metrics';
@@ -61,6 +61,7 @@ export const load: PageServerLoad = ({ url, locals }) => {
 		step,
 		stepKey,
 		trend: weeklyTrend(locals.userId, 12),
+		reconstruction: reconstructionRate(locals.userId, week.startsOn, week.endsOn),
 		steps: steps.map((s, i) => ({ ...s, n: i + 1, done: s.key in done })),
 		week,
 		review,

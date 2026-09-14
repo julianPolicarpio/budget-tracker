@@ -67,9 +67,21 @@ export interface QueuedEntry {
 	taughtWord?: string;
 	taughtEnglish?: string;
 	taughtRoot?: string;
+	/**
+	 * Why the last send attempt was refused, and how many times.
+	 *
+	 * A queue that only counts is a queue that hides a permanent failure. An
+	 * entry the server rejects for a reason that will not change — a wrong
+	 * origin, a word that needs an answer — can never drain, and without this
+	 * the only symptom is a number that never goes down while the app looks
+	 * like it is working. Observed exactly that way: two entries sat refused
+	 * for a day.
+	 */
+	lastError?: string;
+	attempts?: number;
 }
 
-export type NewQueuedEntry = Omit<QueuedEntry, 'id' | 'queuedAt'>;
+export type NewQueuedEntry = Omit<QueuedEntry, 'id' | 'queuedAt' | 'lastError' | 'attempts'>;
 
 /** The swappable seam. `IndexedDbStore` is the only implementation shipped
  * here; tests inject their own. */
@@ -77,6 +89,8 @@ export interface OutboxStore {
 	add(entry: NewQueuedEntry): Promise<QueuedEntry>;
 	list(userId: number): Promise<QueuedEntry[]>;
 	remove(id: number): Promise<void>;
+	/** Record why a send was refused, so the queue can say so. */
+	markFailed?(id: number, error: string): Promise<void>;
 	/** Clears one user's rows, or every row when `userId` is omitted (used by
 	 * sign-out, which does not get to assume it still knows who was signed
 	 * in). */
@@ -145,6 +159,25 @@ class IndexedDbStore implements OutboxStore {
 		});
 	}
 
+	async markFailed(id: number, error: string): Promise<void> {
+		const db = await openDb();
+		return new Promise((resolve, reject) => {
+			const tx = db.transaction(STORE_NAME, 'readwrite');
+			const os = tx.objectStore(STORE_NAME);
+			const get = os.get(id);
+			get.onsuccess = () => {
+				const row = get.result as QueuedEntry | undefined;
+				if (row) {
+					row.lastError = error;
+					row.attempts = (row.attempts ?? 0) + 1;
+					os.put(row);
+				}
+			};
+			tx.oncomplete = () => resolve();
+			tx.onerror = () => reject(tx.error);
+		});
+	}
+
 	async clear(userId?: number): Promise<void> {
 		const db = await openDb();
 		if (userId === undefined) {
@@ -191,6 +224,11 @@ export function list(userId: number): Promise<QueuedEntry[]> {
 
 export function remove(id: number): Promise<void> {
 	return store.remove(id);
+}
+
+/** Record why a send was refused. No-ops on a store that does not support it. */
+export function markFailed(id: number, error: string): Promise<void> {
+	return store.markFailed?.(id, error) ?? Promise.resolve();
 }
 
 export interface FlushResult {

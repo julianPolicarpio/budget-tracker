@@ -227,6 +227,27 @@
 				{/if}
 
 				<!--
+					How much of this week was rebuilt from memory (Spec §4.6).
+
+					`is_catchup` has been written on every log day since Phase 2 and
+					nothing ever read it, so a day reconstructed on Sunday counted as
+					identical evidence to one typed at 11pm on the night. Harmless
+					while catch-up reached one day. Not harmless now that it reaches
+					seven: a review that cannot tell the two apart is a review
+					quietly reporting fiction, and finding 10 says which direction
+					the fiction runs — people underestimate by roughly 30%.
+
+					Shown only when there is something to disclose.
+				-->
+				{#if data.reconstruction.reconstructed > 0}
+					<p class="reconstructed" role="note">
+						{data.reconstruction.reconstructed} of {data.reconstruction.total} days
+						{data.reconstruction.total === 1 ? 'was' : 'were'} filled in afterwards, not logged
+						on the night. Recalled spending tends to run low, so read this week as a floor.
+					</p>
+				{/if}
+
+				<!--
 					Two figures, and only two (Spec §5.11).
 
 					The review stored eleven metrics a week and plotted none of them, so
@@ -932,5 +953,13 @@
 	.link {
 		align-self: flex-start;
 		padding: 0.6rem 1rem;
+	}
+	.reconstructed {
+		margin: 0 0 1.25rem;
+		padding: 0.6rem 0.75rem;
+		border-left: 2px solid var(--status-warning);
+		background: var(--surface);
+		color: var(--ink-secondary);
+		font-size: 0.8125rem;
 	}
 </style>
