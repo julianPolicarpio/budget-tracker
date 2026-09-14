@@ -9,24 +9,71 @@
  * `shared_at`.
  */
 
-import { and, desc, eq, lt } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, lt } from 'drizzle-orm';
 import { forUser, schema } from './db';
 import { formatMoney } from '$lib/money';
 import { bufferWeeksX100, logAdherenceBp, weekActuals } from './metrics';
 import { computeStreak } from './streak';
 import { coverage } from './irregulars';
 import { weekOf, type Week } from './week';
-import { addDays } from './clock';
+import { addDays, daysBetween } from './clock';
 import type { Review, Settings } from './db/schema';
 
 export const REVIEW_STEPS = [
-	{ key: 'balances', title: 'Balances' },
 	{ key: 'actuals', title: 'This week' },
 	{ key: 'top_three', title: 'Top three' },
 	{ key: 'week_ahead', title: 'Coming up' },
 	{ key: 'adjust', title: 'Next week' },
+	{ key: 'balances', title: 'Balances' },
 	{ key: 'send', title: 'Finish' }
 ] as const;
+
+/**
+ * Why `balances` moved, and why it is not simply gone.
+ *
+ * The owner completed one review ever. The second has ZERO `review_step`
+ * rows — never opened, not abandoned partway — while daily logging was still
+ * happening. So the barrier was never length; cutting six steps to four would
+ * not have helped someone who did not reach step one.
+ *
+ * Step one was `balances`: the only step that sends you out of the app, into
+ * four banking apps, to read four numbers and come back. Everything after it
+ * is cheap — `actuals` is computed for you, `top_three` is reading. The whole
+ * cost sat in front of any momentum.
+ *
+ * So it is last but one. Not last: the Finish snapshot reads those figures, so
+ * it cannot follow them. And it appears only when the numbers are actually
+ * stale rather than on a calendar rule, which is self-correcting and needs no
+ * new state — `account.balance_as_of` already exists and the accounts page
+ * already renders its age.
+ *
+ * This degrades honestly when skipped: `bufferWeeksX100()` returns null rather
+ * than a stale lie, and `phases.ts` gates advancement on a balance having been
+ * asserted at least once, never weekly.
+ */
+export const BALANCE_STALE_DAYS = 28;
+
+/** The steps this review actually shows, in order. */
+export function stepsFor(balancesDue: boolean) {
+	return REVIEW_STEPS.filter((s) => s.key !== 'balances' || balancesDue);
+}
+
+/**
+ * True when any live account has never been asserted, or was asserted more
+ * than `BALANCE_STALE_DAYS` ago. Reads `balance_as_of`, which already exists
+ * and which the accounts page already renders the age of — no new state.
+ */
+export function balanceIsStale(userId: number, today: string): boolean {
+	const { db, owns } = forUser(userId);
+	const rows = db
+		.select({ asOf: schema.account.balanceAsOf })
+		.from(schema.account)
+		.where(and(owns(schema.account), isNull(schema.account.archivedAt)))
+		.all();
+
+	if (rows.length === 0) return false;
+	return rows.some((r) => r.asOf === null || daysBetween(r.asOf, today) > BALANCE_STALE_DAYS);
+}
 
 export type StepKey = (typeof REVIEW_STEPS)[number]['key'];
 
@@ -252,4 +299,48 @@ export function weeklyReviewDue(userId: number, today: string, weekStartsOn: num
 	const week = weekOf(addDays(weekOf(today, weekStartsOn).startsOn, -1), weekStartsOn);
 	const existing = reviewByLabel(userId, week.label);
 	return existing?.completedAt ? null : week;
+}
+
+
+/**
+ * The last `limit` completed reviews, oldest first, for the two trend figures
+ * on the This week step (§5.11).
+ *
+ * The review table has stored eleven metrics per row since Phase 2 and plotted
+ * none of them. That is the defect: every figure in the review described ONE
+ * week, so the ritual could not answer the question it exists to ask — am I
+ * getting better? The data was being collected and discarded visually.
+ *
+ * Only completed reviews count. A review in progress has null metrics, and a
+ * gap in a trend line is more honest than a zero.
+ */
+export interface TrendPoint {
+	endsOn: string;
+	label: string;
+	totalSpentMinor: number | null;
+	unplannedRatioBp: number | null;
+}
+
+export function weeklyTrend(userId: number, limit = 12): TrendPoint[] {
+	const { db, owns } = forUser(userId);
+	const rows = db
+		.select({
+			endsOn: schema.review.endsOn,
+			label: schema.review.periodLabel,
+			totalSpentMinor: schema.review.totalSpentMinor,
+			unplannedRatioBp: schema.review.unplannedRatioBp
+		})
+		.from(schema.review)
+		.where(
+			and(
+				owns(schema.review),
+				eq(schema.review.kind, 'weekly'),
+				isNotNull(schema.review.completedAt)
+			)
+		)
+		.orderBy(desc(schema.review.endsOn))
+		.limit(limit)
+		.all();
+
+	return rows.reverse();
 }

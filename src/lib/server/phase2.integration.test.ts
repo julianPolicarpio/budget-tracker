@@ -303,6 +303,65 @@ describe('metrics', () => {
 	});
 });
 
+describe('the review flow (Spec §5.10, §5.11)', () => {
+	it('leaves balances out of the weekly flow while the figures are fresh', () => {
+		m.sqlite.prepare(`UPDATE account SET balance_as_of = ? WHERE user_id = 1`).run('2026-08-20');
+		const steps = m.review.stepsFor(m.review.balanceIsStale(1, '2026-08-22'));
+		expect(steps.map((s) => s.key)).toEqual([
+			'actuals',
+			'top_three',
+			'week_ahead',
+			'adjust',
+			'send'
+		]);
+	});
+
+	it('brings balances back as step 5 of 6 once they go stale, never as step 1', () => {
+		m.sqlite.prepare(`UPDATE account SET balance_as_of = ? WHERE user_id = 1`).run('2026-06-01');
+		const steps = m.review.stepsFor(m.review.balanceIsStale(1, '2026-08-22'));
+		expect(steps).toHaveLength(6);
+		// Last but one: the Finish snapshot reads these figures, so it cannot
+		// precede them — and step one is where the owner stopped, twice.
+		expect(steps[4].key).toBe('balances');
+		expect(steps[5].key).toBe('send');
+		expect(steps[0].key).not.toBe('balances');
+	});
+
+	it('treats a never-asserted balance as stale', () => {
+		const before = m.sqlite
+			.prepare(`SELECT id, balance_as_of FROM account WHERE user_id = 1`)
+			.all() as { id: number; balance_as_of: string | null }[];
+
+		m.sqlite.prepare(`UPDATE account SET balance_as_of = NULL WHERE user_id = 1`).run();
+		expect(m.review.balanceIsStale(1, '2026-08-22')).toBe(true);
+
+		const put = m.sqlite.prepare(`UPDATE account SET balance_as_of = ? WHERE id = ?`);
+		for (const r of before) put.run(r.balance_as_of, r.id);
+	});
+
+	it('trends only completed reviews, oldest first, and never invents a zero', () => {
+		// Its own tenant: deleting user 1's reviews to make room would leak into
+		// every later test in this file, which is how a suite starts depending on
+		// the order it happens to run in.
+		m.sqlite.prepare(`INSERT INTO app_user (id, created_at) VALUES (77, 'x')`).run();
+		const ins = m.sqlite.prepare(
+			`INSERT INTO review (kind, period_label, starts_on, ends_on, completed_at,
+			   total_spent_minor, unplanned_ratio_bp, created_at, user_id)
+			 VALUES ('weekly', ?, ?, ?, ?, ?, ?, 'x', 77)`
+		);
+		ins.run('2026-W30', '2026-07-20', '2026-07-26', 'done', 50_000, 4000);
+		ins.run('2026-W31', '2026-07-27', '2026-08-02', 'done', 40_000, 3000);
+		// In progress: null metrics. A gap in a trend is honest; a zero is a lie.
+		ins.run('2026-W32', '2026-08-03', '2026-08-09', null, null, null);
+
+		const trend = m.review.weeklyTrend(77, 12);
+		expect(trend.map((t) => t.label)).toEqual(['2026-W30', '2026-W31']);
+		expect(trend[0].unplannedRatioBp).toBe(4000);
+
+		m.sqlite.prepare(`DELETE FROM app_user WHERE id = 77`).run();
+	});
+});
+
 describe('the weekly artefact', () => {
 	it('creates once, resumes, and never duplicates a label', () => {
 		const a = m.review.ensureWeeklyReview(1, WEEK);

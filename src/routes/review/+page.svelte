@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Figure from '$lib/components/Figure.svelte';
 	import ReviewNav from '$lib/components/ReviewNav.svelte';
 	import { enhance } from '$app/forms';
 	import { dailyAllowance, displayBand } from '$lib/allowance';
@@ -115,9 +116,9 @@
 		{/if}
 
 		<!-- ── R1 ──────────────────────────────────────────────────────────── -->
-		{#if data.step === 1}
+		{#if data.stepKey === 'balances'}
 			<section class="step">
-				<h2>Log the four balances</h2>
+				<h2>Balances</h2>
 				<p class="lede">
 					Open each account and type what it actually says. Physical recording is what carries the
 					effect — thinking about the number does not do this work.
@@ -157,9 +158,9 @@
 		{/if}
 
 		<!-- ── R2 ──────────────────────────────────────────────────────────── -->
-		{#if data.step === 2}
+		{#if data.stepKey === 'actuals'}
 			<section class="step">
-				<h2>This week's actuals</h2>
+				<h2>This week</h2>
 
 				{#if data.actuals.totalMinor === 0}
 					<p class="empty">
@@ -225,9 +226,87 @@
 					</div>
 				{/if}
 
+				<!--
+					Two figures, and only two (Spec §5.11).
+
+					The review stored eleven metrics a week and plotted none of them, so
+					it could not answer the one question the ritual exists to ask: am I
+					getting better? Both of these are change-over-time, which is the
+					question. Everything already on this step describes ONE week.
+
+					ONE AXIS EACH. Never both series on one chart with two y-scales —
+					that is the most common charting error and it is tempting here
+					precisely because both are weekly.
+
+					Bars for spend because weeks are discrete buckets; a line for the
+					ratio because it is a rate moving toward a target.
+				-->
+				<Figure
+					title="Impulse spending, last 12 weeks"
+					emptyNote="Fills in as you finish reviews. Two points is not a trend, so this stays empty until there are three."
+					columns={['Week', 'Impulse spending']}
+					rows={data.trend
+						.filter((t) => t.unplannedRatioBp !== null)
+						.map((t) => [t.label, `${Math.round(t.unplannedRatioBp! / 100)}%`])}
+					render={(Plot, width) =>
+						Plot.plot({
+							width,
+							height: 200,
+							marginLeft: 44,
+							x: { type: 'band', label: null },
+							y: { label: null, grid: true, domain: [0, 100], tickFormat: (d: number) => `${d}%` },
+							style: { background: 'transparent', color: 'var(--ink-muted)', fontSize: '11px' },
+							marks: [
+								// The 25% target, as a band rather than a line: it is a
+								// direction of travel, not a pass mark.
+								Plot.rectY([{ lo: 0, hi: 25 }], {
+									y1: 'lo',
+									y2: 'hi',
+									fill: 'var(--hairline)',
+									fillOpacity: 0.5
+								}),
+								Plot.line(
+									data.trend.filter((t) => t.unplannedRatioBp !== null),
+									{
+										x: 'label',
+										y: (t: { unplannedRatioBp: number }) => t.unplannedRatioBp / 100,
+										stroke: 'var(--series-1)',
+										strokeWidth: 2
+									}
+								),
+								Plot.ruleY([0], { stroke: 'var(--hairline-strong)' })
+							]
+						})}
+				/>
+
+				<Figure
+					title="Spent per week, last 12 weeks"
+					emptyNote="Fills in as you finish reviews."
+					columns={['Week', 'Spent']}
+					rows={data.trend
+						.filter((t) => t.totalSpentMinor !== null)
+						.map((t) => [t.label, money(t.totalSpentMinor!)])}
+					render={(Plot, width) =>
+						Plot.plot({
+							width,
+							height: 200,
+							marginLeft: 56,
+							x: { type: 'band', label: null },
+							y: { label: null, grid: true, tickFormat: (d: number) => money(d) },
+							style: { background: 'transparent', color: 'var(--ink-muted)', fontSize: '11px' },
+							marks: [
+								Plot.barY(
+									data.trend.filter((t) => t.totalSpentMinor !== null),
+									{ x: 'label', y: 'totalSpentMinor', fill: 'var(--series-1)', rx: 1 }
+								),
+								Plot.ruleY([0], { stroke: 'var(--hairline-strong)' })
+							]
+						})}
+				/>
+
 				<form method="POST" action="?/step" use:enhance>
 					<input type="hidden" name="stepKey" value="actuals" />
-					<input type="hidden" name="next" value="3" />
+					<input type="hidden" name="nextKey" value="top_three" />
 					<input
 						type="hidden"
 						name="unplannedRatioBp"
@@ -239,9 +318,9 @@
 		{/if}
 
 		<!-- ── R3 ──────────────────────────────────────────────────────────── -->
-		{#if data.step === 3}
+		{#if data.stepKey === 'top_three'}
 			<section class="step">
-				<h2>Top three transactions</h2>
+				<h2>Top three</h2>
 				<p class="lede">
 					Not the total — the top three. One question each, three answers, no analysis.
 				</p>
@@ -250,13 +329,13 @@
 					<p class="empty">No entries this week, so there is nothing to weigh up.</p>
 					<form method="POST" action="?/step" use:enhance>
 						<input type="hidden" name="stepKey" value="top_three" />
-						<input type="hidden" name="next" value="4" />
+						<input type="hidden" name="nextKey" value="week_ahead" />
 						<button class="primary" type="submit">Continue</button>
 					</form>
 				{:else}
 					<form method="POST" action="?/step" use:enhance>
 						<input type="hidden" name="stepKey" value="top_three" />
-						<input type="hidden" name="next" value="4" />
+						<input type="hidden" name="nextKey" value="week_ahead" />
 						<div class="judgements">
 							{#each data.topThree as t (t.id)}
 								<div class="card judgement">
@@ -286,9 +365,9 @@
 		{/if}
 
 		<!-- ── R4 ──────────────────────────────────────────────────────────── -->
-		{#if data.step === 4}
+		{#if data.stepKey === 'week_ahead'}
 			<section class="step">
-				<h2>Week ahead</h2>
+				<h2>Coming up</h2>
 				<p class="lede">
 					Anything on the calendar that costs money? Naming it now is what stops it eating the daily
 					number later.
@@ -310,7 +389,7 @@
 
 				<form method="POST" action="?/step" use:enhance>
 					<input type="hidden" name="stepKey" value="week_ahead" />
-					<input type="hidden" name="next" value="5" />
+					<input type="hidden" name="nextKey" value="adjust" />
 					<label class="field block">
 						<span class="field-label">Costs coming up</span>
 						<textarea
@@ -324,9 +403,9 @@
 		{/if}
 
 		<!-- ── R5 ──────────────────────────────────────────────────────────── -->
-		{#if data.step === 5}
+		{#if data.stepKey === 'adjust'}
 			<section class="step">
-				<h2>Adjust the number</h2>
+				<h2>Next week</h2>
 				<p class="lede">
 					Mid-period adjustment is one of the interventions that reduced overspending. A budget you
 					are allowed to update is a budget you do not abandon.
@@ -400,9 +479,9 @@
 		{/if}
 
 		<!-- ── R6 ──────────────────────────────────────────────────────────── -->
-		{#if data.step === 6}
+		{#if data.stepKey === 'send'}
 			<section class="step">
-				<h2>Send it</h2>
+				<h2>Finish</h2>
 
 				{#if !data.review.completedAt}
 					<p class="lede">

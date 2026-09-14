@@ -9,6 +9,9 @@ import { openPeriodOn, supersedePeriod } from '$lib/server/rollover';
 import { parseMoney } from '$lib/money';
 import {
 	REVIEW_STEPS,
+	stepsFor,
+	balanceIsStale,
+	weeklyTrend,
 	completeReview,
 	ensureWeeklyReview,
 	isStepKey,
@@ -30,14 +33,23 @@ export const load: PageServerLoad = ({ url, locals }) => {
 	const review = ensureWeeklyReview(locals.userId, week);
 	const done = stepPayloads(locals.userId, review.id);
 
+	/*
+	 * Balances only appears when the figures are actually stale (§5.10). It is
+	 * the one step that sends you out of the app for four numbers, and it used
+	 * to be step one — which is where the owner stopped, twice.
+	 */
+	const balancesDue = balanceIsStale(locals.userId, today);
+	const steps = stepsFor(balancesDue);
+
 	// Resume at the first unfinished step unless the user asked for one.
-	const firstOpen = REVIEW_STEPS.findIndex((s) => !(s.key in done));
+	const firstOpen = steps.findIndex((s) => !(s.key in done));
 	const requested = Number(url.searchParams.get('step'));
 	const step = Number.isInteger(requested)
-		? Math.min(Math.max(requested, 1), REVIEW_STEPS.length)
+		? Math.min(Math.max(requested, 1), steps.length)
 		: firstOpen === -1
-			? REVIEW_STEPS.length
+			? steps.length
 			: firstOpen + 1;
+	const stepKey = steps[step - 1].key;
 
 	const range = { from: week.startsOn, to: week.endsOn };
 	const actuals = weekActuals(locals.userId, range);
@@ -47,7 +59,9 @@ export const load: PageServerLoad = ({ url, locals }) => {
 	return {
 		ready: true as const,
 		step,
-		steps: REVIEW_STEPS.map((s, i) => ({ ...s, n: i + 1, done: s.key in done })),
+		stepKey,
+		trend: weeklyTrend(locals.userId, 12),
+		steps: steps.map((s, i) => ({ ...s, n: i + 1, done: s.key in done })),
 		week,
 		review,
 		prior: prior
@@ -130,13 +144,22 @@ export const actions: Actions = {
 
 		const payload: Record<string, unknown> = {};
 		for (const [k, v] of form.entries()) {
-			if (k === 'stepKey' || k === 'next') continue;
+			if (k === 'stepKey' || k === 'next' || k === 'nextKey') continue;
 			payload[k] = String(v);
 		}
 
 		saveStep(locals.userId, ctx.review.id, key, payload);
-		const next = Number(form.get('next'));
-		redirect(303, `/review?step=${Number.isInteger(next) ? next : 1}`);
+
+		/*
+		 * Advance by KEY, not by number. The step list is now variable length --
+		 * `balances` only appears when the figures are stale (§5.10) -- so a
+		 * hardcoded "next = 3" points at a different step depending on the day.
+		 */
+		const steps = stepsFor(balanceIsStale(locals.userId, ctx.today));
+		const nextKey = String(form.get('nextKey') ?? '');
+		const at = steps.findIndex((s) => s.key === nextKey);
+		const fallback = steps.findIndex((s) => s.key === key) + 2;
+		redirect(303, `/review?step=${at >= 0 ? at + 1 : Math.min(fallback, steps.length)}`);
 	},
 
 	/**
