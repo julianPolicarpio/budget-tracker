@@ -235,7 +235,7 @@ INCOME ──┬──▶ BILLS            auto-debits only, never thought about
 					{#each data.checklist as item (item.id)}
 						<li class:done={item.executedAt !== null}>
 							<span>
-								Move <strong>{money(item.amountMinor)}</strong> from Inflow to {item.accountName}
+								Move <strong>{money(item.amountMinor)}</strong> from Income to {item.accountName}
 							</span>
 							{#if item.executedAt}
 								<span class="status good"><span aria-hidden="true">✓</span> done</span>
