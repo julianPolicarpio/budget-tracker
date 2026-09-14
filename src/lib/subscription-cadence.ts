@@ -69,3 +69,42 @@ export const DEFAULT_LEAD_DAYS: Record<Cadence, number> = {
 	semiannual: 30,
 	annual: 30
 };
+
+/**
+ * Stage 2 fires this close to the deadline, for a non-trial commitment or a
+ * trial longer than 30 days — the "longer: existing behaviour" row of
+ * `trialAlertDays()` below. Lives here rather than in `subscriptions.ts`
+ * (server-only) because `trialAlertDays()` needs it and both this module and
+ * that function must stay importable from the browser (see the module doc).
+ */
+export const FINAL_ALERT_DAYS = 7;
+
+export interface TrialAlertDays {
+	leadDays: number;
+	finalLeadDays: number;
+}
+
+/**
+ * Trial lead days (Spec §7.3).
+ *
+ * A trial forced `leadDays = 30` regardless of the trial's own length. For a
+ * 7-day trial that meant the first warning fired the moment it was recorded
+ * (`daysLeft <= 30` is true on day 7) and the second fired the very next
+ * sweep (`daysLeft <= FINAL_ALERT_DAYS(7)` is also already true) — both
+ * alerts inside 48 hours, then silence until the charge landed. The fix
+ * scales both stages to a fraction of the trial's own length instead of
+ * using the cadence-scaled or constant defaults meant for a recurring bill
+ * with no comparably short deadline.
+ *
+ * `trialLengthDays` is the whole span from when the trial was captured to
+ * its deadline (`daysBetween(today, cancelByOn)` at creation time, or an
+ * explicit day count read straight off the confirmation text by
+ * `trial-parser.ts`) — not the days remaining right now, which shrinks every
+ * day and would make the bucket a moving target.
+ */
+export function trialAlertDays(trialLengthDays: number): TrialAlertDays {
+	if (trialLengthDays <= 7) return { leadDays: 3, finalLeadDays: 1 };
+	if (trialLengthDays <= 14) return { leadDays: 7, finalLeadDays: 2 };
+	if (trialLengthDays <= 30) return { leadDays: 14, finalLeadDays: 3 };
+	return { leadDays: 30, finalLeadDays: FINAL_ALERT_DAYS };
+}

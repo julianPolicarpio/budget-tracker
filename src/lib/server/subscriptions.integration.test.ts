@@ -11,7 +11,7 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { DEFAULT_LEAD_DAYS } from '$lib/subscription-cadence';
+import { DEFAULT_LEAD_DAYS, trialAlertDays } from '$lib/subscription-cadence';
 import { applyMigrations } from '../../../scripts/apply-migrations.js';
 
 type Mod = {
@@ -81,9 +81,7 @@ describe('annualised cost', () => {
 		// (the fractional-month bug) would read ₱2,400; the honest figure is
 		// exactly ₱10,400.
 		expect(m.subs.annualisedMinor({ amountMinor: 20_000, cadence: 'weekly' })).toBe(1_040_000);
-		expect(m.subs.annualisedMinor({ amountMinor: 20_000, cadence: 'fortnightly' })).toBe(
-			520_000
-		);
+		expect(m.subs.annualisedMinor({ amountMinor: 20_000, cadence: 'fortnightly' })).toBe(520_000);
 	});
 });
 
@@ -200,15 +198,15 @@ describe('decisions', () => {
 
 describe('weekly and fortnightly cadences advance by days, not fractional months (Spec §5.1)', () => {
 	it('advances a weekly charge by exactly 7 days across a month boundary', () => {
-		expect(
-			m.subs.advanceCharge({ nextChargeOn: '2027-08-27', cadence: 'weekly' })
-		).toBe('2027-09-03');
+		expect(m.subs.advanceCharge({ nextChargeOn: '2027-08-27', cadence: 'weekly' })).toBe(
+			'2027-09-03'
+		);
 	});
 
 	it('advances a fortnightly charge by exactly 14 days', () => {
-		expect(
-			m.subs.advanceCharge({ nextChargeOn: '2027-08-27', cadence: 'fortnightly' })
-		).toBe('2027-09-10');
+		expect(m.subs.advanceCharge({ nextChargeOn: '2027-08-27', cadence: 'fortnightly' })).toBe(
+			'2027-09-10'
+		);
 	});
 
 	it('regression: monthly, quarterly, semiannual and annual still advance by calendar months', () => {
@@ -412,6 +410,51 @@ describe('a pile of free trials', () => {
 	});
 });
 
+describe("trial lead days scale with the trial's own length (Spec §7.3, task A6)", () => {
+	it('trialAlertDays buckets a trial by its own length, never the flat 30-day default', () => {
+		expect(trialAlertDays(7)).toEqual({ leadDays: 3, finalLeadDays: 1 });
+		expect(trialAlertDays(14)).toEqual({ leadDays: 7, finalLeadDays: 2 });
+		expect(trialAlertDays(30)).toEqual({ leadDays: 14, finalLeadDays: 3 });
+		// Longer than 30 days keeps exactly the prior behaviour.
+		expect(trialAlertDays(90)).toEqual({ leadDays: 30, finalLeadDays: 7 });
+	});
+
+	it('a 7-day trial fires stage 1 on day 3 and stage 2 on day 1, not both on day 0', () => {
+		const { leadDays, finalLeadDays } = trialAlertDays(7);
+		const id = m.subs.createSubscription(1, {
+			...GOOGLE,
+			label: 'ChatGPT subscription',
+			amountMinor: 110_000,
+			nextChargeOn: '2026-09-24',
+			trialEndsOn: '2026-09-24',
+			cancelByOn: '2026-09-24',
+			leadDays,
+			finalLeadDays
+		});
+		const forThis = (alerts: ReturnType<typeof m.subs.pendingAlerts>) =>
+			alerts.find((a) => a.sub.id === id);
+
+		// The old bug: leadDays forced to 30 meant this fired immediately, the
+		// moment the trial was recorded (day 7 out is already inside a 30-day
+		// lead). Fixed, nothing fires yet.
+		expect(forThis(m.subs.pendingAlerts(1, '2026-09-17'))).toBeUndefined();
+
+		// Day 3: stage 1, right on schedule.
+		const stage1 = forThis(m.subs.pendingAlerts(1, '2026-09-21'));
+		expect(stage1?.stage).toBe(1);
+		m.subs.recordAlert(1, id, 1);
+
+		// Day 2: quiet. The old bug's second half was firing stage 2 the very
+		// next sweep after stage 1 (FINAL_ALERT_DAYS=7 was already <= daysLeft);
+		// finalLeadDays=1 means it does not fire yet.
+		expect(forThis(m.subs.pendingAlerts(1, '2026-09-22'))).toBeUndefined();
+
+		// Day 1: stage 2.
+		const stage2 = forThis(m.subs.pendingAlerts(1, '2026-09-23'));
+		expect(stage2?.stage).toBe(2);
+	});
+});
+
 describe('essentials are not culled', () => {
 	it('keeps a non-negotiable cost off the cull list entirely', () => {
 		m.subs.createSubscription(1, { ...GOOGLE, label: 'Home wifi', isEssential: true });
@@ -440,7 +483,12 @@ describe('the Bills allocation tracks changes mid-period', () => {
 			.run('2026-08-23T00:00:00.000Z');
 		const period = rollover.openPeriodOn(1, '2026-08-24')!;
 
-		m.subs.createSubscription(1, { ...GOOGLE, label: 'Wifi', amountMinor: 75_000, trialEndsOn: null });
+		m.subs.createSubscription(1, {
+			...GOOGLE,
+			label: 'Wifi',
+			amountMinor: 75_000,
+			trialEndsOn: null
+		});
 		alloc.ensureAllocations(1, period, '2026-08-24');
 
 		const billsId = (
@@ -457,7 +505,12 @@ describe('the Bills allocation tracks changes mid-period', () => {
 
 		// A second commitment lands mid-week. The transfer has not been made, so
 		// the figure must follow — otherwise the page and the money map disagree.
-		m.subs.createSubscription(1, { ...GOOGLE, label: 'ChatGPT', amountMinor: 110_000, trialEndsOn: null });
+		m.subs.createSubscription(1, {
+			...GOOGLE,
+			label: 'ChatGPT',
+			amountMinor: 110_000,
+			trialEndsOn: null
+		});
 		alloc.ensureAllocations(1, period, '2026-08-24');
 		expect(read()).toBe(42_546);
 
@@ -465,7 +518,12 @@ describe('the Bills allocation tracks changes mid-period', () => {
 		m.sqlite
 			.prepare(`UPDATE allocation SET executed_at=? WHERE account_id=?`)
 			.run('2026-08-24T10:00:00.000Z', billsId);
-		m.subs.createSubscription(1, { ...GOOGLE, label: 'Another', amountMinor: 50_000, trialEndsOn: null });
+		m.subs.createSubscription(1, {
+			...GOOGLE,
+			label: 'Another',
+			amountMinor: 50_000,
+			trialEndsOn: null
+		});
 		alloc.ensureAllocations(1, period, '2026-08-24');
 		expect(read()).toBe(42_546);
 	});

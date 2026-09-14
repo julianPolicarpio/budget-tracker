@@ -214,6 +214,10 @@ export const subscription = sqliteTable(
 		trialEndsOn: text('trial_ends_on'),
 		cancelByOn: text('cancel_by_on'),
 		leadDays: integer('lead_days').notNull(),
+		// Migration 0012 (Spec §7.3): the second alert's own threshold, scaled
+		// to a trial's length the same way `leadDays` scales the first. Every
+		// pre-existing row got the constant `FINAL_ALERT_DAYS` as its default.
+		finalLeadDays: integer('final_lead_days').notNull().default(7),
 		alertStage: integer('alert_stage').notNull(),
 		alertedAt: text('alerted_at'),
 		lastUsedOn: text('last_used_on'),
@@ -449,16 +453,7 @@ export const categoryLeaf = sqliteTable(
 		id: integer('id').primaryKey(),
 		userId: integer('user_id').notNull(),
 		root: text('root', {
-			enum: [
-				'food_in',
-				'food_out',
-				'transport',
-				'study_work',
-				'health',
-				'social',
-				'stuff',
-				'other'
-			]
+			enum: ['food_in', 'food_out', 'transport', 'study_work', 'health', 'social', 'stuff', 'other']
 		}).notNull(),
 		name: text('name').notNull(),
 		createdAt: text('created_at').notNull()
@@ -482,20 +477,14 @@ export const labelMap = sqliteTable(
 		typed: text('typed').notNull(),
 		english: text('english').notNull(),
 		root: text('root', {
-			enum: [
-				'food_in',
-				'food_out',
-				'transport',
-				'study_work',
-				'health',
-				'social',
-				'stuff',
-				'other'
-			]
+			enum: ['food_in', 'food_out', 'transport', 'study_work', 'health', 'social', 'stuff', 'other']
 		}).notNull(),
 		leafId: integer('leaf_id')
 	},
-	(t) => [uniqueIndex('idx_label_map_unique').on(t.userId, t.typed), index('idx_label_map_user').on(t.userId)]
+	(t) => [
+		uniqueIndex('idx_label_map_unique').on(t.userId, t.typed),
+		index('idx_label_map_user').on(t.userId)
+	]
 );
 
 export type AppUser = typeof appUser.$inferSelect;

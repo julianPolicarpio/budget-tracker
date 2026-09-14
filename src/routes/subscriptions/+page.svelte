@@ -10,6 +10,7 @@
 	import { CATEGORIES } from '$lib/categories';
 	import { CADENCE_LABELS, CADENCE_STEP, type Cadence } from '$lib/subscription-cadence';
 	import { formatMoney } from '$lib/money';
+	import { parseTrialText } from '$lib/trial-parser';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -49,6 +50,52 @@
 	let editingId = $state<number | null>(null);
 	let showForm = $state(false);
 	let isTrial = $state(true);
+
+	// ── Paste a trial confirmation (Spec §7.1) ──────────────────────────────
+	// Minor units back to a plain editable string, mirroring
+	// SubscriptionEdit.svelte's own `major()` — never a float.
+	function majorAmount(m: number | null): string {
+		if (m === null) return '';
+		const s = String(Math.abs(m)).padStart(minorUnits + 1, '0');
+		if (minorUnits === 0) return s;
+		return `${s.slice(0, -minorUnits)}.${s.slice(-minorUnits)}`;
+	}
+
+	let showPaste = $state(false);
+	let pasteText = $state('');
+	let pasteRead = $state(false);
+	let pasteLabel = $state('');
+	let pasteAmount = $state('');
+	let pasteCadence = $state('');
+	let pasteDate = $state('');
+	let pasteTrialDays = $state<number | null>(null);
+
+	/**
+	 * Runs `trial-parser.ts` — pure, client-side, no network round trip — and
+	 * loads the editable fields below from what it found. Fields it read
+	 * render pre-filled and quiet; fields it could not are left blank, which
+	 * the markup below turns into a visible question rather than a silent
+	 * guess (Spec §7.1's own rule).
+	 */
+	function readPaste() {
+		const parsed = parseTrialText(pasteText, minorUnits);
+		pasteLabel = parsed.label ?? '';
+		pasteAmount = majorAmount(parsed.amountMinor);
+		pasteCadence = parsed.cadence ?? '';
+		pasteDate = parsed.cancelByOn ?? '';
+		pasteTrialDays = parsed.trialDays;
+		pasteRead = true;
+	}
+
+	function resetPaste() {
+		pasteText = '';
+		pasteRead = false;
+		pasteLabel = '';
+		pasteAmount = '';
+		pasteCadence = '';
+		pasteDate = '';
+		pasteTrialDays = null;
+	}
 </script>
 
 <svelte:head><title>Bills &amp; subscriptions · Split</title></svelte:head>
@@ -161,12 +208,7 @@
 						{#if editingId === sub.id}
 							<tr class="editor">
 								<td colspan="5">
-									<SubscriptionEdit
-										{sub}
-										{minorUnits}
-										{symbol}
-										onDone={() => (editingId = null)}
-									/>
+									<SubscriptionEdit {sub} {minorUnits} {symbol} onDone={() => (editingId = null)} />
 								</td>
 							</tr>
 						{/if}
@@ -178,8 +220,8 @@
 
 		{#if data.rows.length === 0}
 			<p class="empty">
-				Nothing cancellable recorded. The dangerous subscription is always the
-				one you forgot you had.
+				Nothing cancellable recorded. The dangerous subscription is always the one you forgot you
+				had.
 			</p>
 		{:else}
 			<table class="grid">
@@ -236,24 +278,24 @@
 									the whole grid's column widths.
 								-->
 								<div class="actions">
-								<button
-									class="mini"
-									onclick={() => (editingId = editingId === row.sub.id ? null : row.sub.id)}
-								>
-									Edit
-								</button>
-								<form method="POST" action="?/used" use:enhance>
-									<input type="hidden" name="id" value={row.sub.id} />
-									<button type="submit" class="mini">Used it</button>
-								</form>
-								<form method="POST" action="?/keep" use:enhance>
-									<input type="hidden" name="id" value={row.sub.id} />
-									<button type="submit" class="mini">Keep</button>
-								</form>
-								<form method="POST" action="?/cancel" use:enhance>
-									<input type="hidden" name="id" value={row.sub.id} />
-									<button type="submit" class="mini danger">Cancelled it</button>
-								</form>
+									<button
+										class="mini"
+										onclick={() => (editingId = editingId === row.sub.id ? null : row.sub.id)}
+									>
+										Edit
+									</button>
+									<form method="POST" action="?/used" use:enhance>
+										<input type="hidden" name="id" value={row.sub.id} />
+										<button type="submit" class="mini">Used it</button>
+									</form>
+									<form method="POST" action="?/keep" use:enhance>
+										<input type="hidden" name="id" value={row.sub.id} />
+										<button type="submit" class="mini">Keep</button>
+									</form>
+									<form method="POST" action="?/cancel" use:enhance>
+										<input type="hidden" name="id" value={row.sub.id} />
+										<button type="submit" class="mini danger">Cancelled it</button>
+									</form>
 								</div>
 							</td>
 						</tr>
@@ -274,8 +316,10 @@
 			</table>
 
 			<p class="rule">
-				<strong>If a renewal notice arrives, decide right then — keep or cancel — and
-				never "decide later."</strong>
+				<strong
+					>If a renewal notice arrives, decide right then — keep or cancel — and never "decide
+					later."</strong
+				>
 				<span>Spec §374. "Later" is how ₱285 a month becomes permanent.</span>
 			</p>
 		{/if}
@@ -298,6 +342,92 @@
 					</li>
 				{/each}
 			</ul>
+		{/if}
+
+		<!--
+			Paste a trial confirmation (Spec §7.1). Capture is paste, not OCR —
+			both phone platforms already do on-device text extraction (iOS Live
+			Text, Android screenshot text selection) better than anything this
+			app could bundle. `trial-parser.ts` runs entirely in the browser and
+			fills what it can; "Read it" only loads the fields below, it saves
+			nothing until "Add it" is pressed.
+		-->
+		<button class="disclose" onclick={() => (showPaste = !showPaste)} aria-expanded={showPaste}>
+			{showPaste ? '− Close' : '+ Paste a trial confirmation'}
+		</button>
+
+		{#if showPaste}
+			<div class="paste">
+				<label for="pasteText">Paste the confirmation text</label>
+				<textarea
+					id="pasteText"
+					bind:value={pasteText}
+					rows="4"
+					placeholder={'Free for 7 days, then PHP 549.00 per month. Renews on 19 September 2026.'}
+				></textarea>
+				<button type="button" class="mini" onclick={readPaste} disabled={pasteText.trim() === ''}>
+					Read it
+				</button>
+
+				{#if pasteRead}
+					<form
+						method="POST"
+						action="?/addFromPaste"
+						use:enhance={() =>
+							({ result, update }) => {
+								update();
+								if (result.type === 'success') resetPaste();
+							}}
+						class="add"
+					>
+						<div class="field wide">
+							<label for="pl-label">What is it</label>
+							<input id="pl-label" name="label" bind:value={pasteLabel} required />
+							{#if !pasteLabel}
+								<span class="hint ask">Could not read the name — type it.</span>
+							{/if}
+						</div>
+						<div class="field">
+							<label for="pl-amount">Price after the trial ({symbol})</label>
+							<input
+								id="pl-amount"
+								name="amount"
+								inputmode="decimal"
+								bind:value={pasteAmount}
+								required
+							/>
+							{#if !pasteAmount}
+								<span class="hint ask">Could not read the price — enter it.</span>
+							{/if}
+						</div>
+						<div class="field">
+							<label for="pl-cadence">Bills</label>
+							<select id="pl-cadence" name="cadence" bind:value={pasteCadence} required>
+								<option value="" disabled>— pick one —</option>
+								{#each Object.entries(CADENCE_LABELS) as [key, label] (key)}
+									<option value={key}>{label}</option>
+								{/each}
+							</select>
+							{#if !pasteCadence}
+								<span class="hint ask">Could not read how often it bills — pick one.</span>
+							{/if}
+						</div>
+						<div class="field">
+							<label for="pl-date">Converts on</label>
+							<input id="pl-date" name="trialEndsOn" type="date" bind:value={pasteDate} required />
+							{#if !pasteDate}
+								<span class="hint ask">Could not read the date — give it.</span>
+							{/if}
+						</div>
+						{#if pasteTrialDays !== null}
+							<p class="hint wide">
+								{pasteTrialDays}-day trial — the reminder is timed off that, not a flat 30 days.
+							</p>
+						{/if}
+						<button type="submit" class="save">Add it</button>
+					</form>
+				{/if}
+			</div>
 		{/if}
 
 		<button class="disclose" onclick={() => (showForm = !showForm)} aria-expanded={showForm}>
@@ -691,6 +821,41 @@
 	.hint {
 		color: var(--ink-muted);
 		font-size: 0.6875rem;
+	}
+
+	.hint.wide {
+		grid-column: 1 / -1;
+	}
+
+	/* A field the parser could not fill: quiet for the ones it did (plain
+	   input styling, no marker), a visible question for the ones it did not. */
+	.hint.ask {
+		color: var(--ink-secondary);
+	}
+
+	.paste {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		margin-top: 1rem;
+		padding: 1.25rem;
+		border: 1px solid var(--hairline);
+		border-radius: 0.5rem;
+	}
+
+	.paste textarea {
+		padding: 0.5rem;
+		background: var(--surface);
+		border: 1px solid var(--hairline-strong);
+		border-radius: 0.25rem;
+		color: var(--ink);
+		font: inherit;
+		font-size: 0.875rem;
+		resize: vertical;
+	}
+
+	.paste .mini {
+		align-self: flex-start;
 	}
 
 	.check {

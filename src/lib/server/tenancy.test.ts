@@ -123,9 +123,7 @@ describe('tenancy', () => {
 		it('every table carries a NOT NULL user_id', () => {
 			const ALLOWED = new Set(['_migration', 'app_user']);
 			const tables = m.sqlite
-				.prepare(
-					`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`
-				)
+				.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`)
 				.all() as { name: string }[];
 
 			const missing: string[] = [];
@@ -165,9 +163,7 @@ describe('tenancy', () => {
 		});
 
 		it('logAdherenceBp counts only the caller', () => {
-			expect(m.metrics.logAdherenceBp(OWNER, WEEK)).toBe(
-				m.metrics.logAdherenceBp(STRANGER, WEEK)
-			);
+			expect(m.metrics.logAdherenceBp(OWNER, WEEK)).toBe(m.metrics.logAdherenceBp(STRANGER, WEEK));
 			// Both logged exactly one day in the same window; equality here is
 			// the point, and it must come from two separate counts of 1 rather
 			// than from one shared count of 2.
@@ -244,6 +240,41 @@ describe('tenancy', () => {
 			expect(csv).not.toContain('9990.00');
 		});
 
+		// Task A6, Spec §7.2: the `.ics` reminder is fetched by subscription id
+		// straight off a route, so it is its own tenancy boundary — the same
+		// class of bug export.json and import were, just discovered while this
+		// route was still being written rather than after it shipped. Placed
+		// before the import test below: that test's `?confirm=replace` wipes
+		// and never restores the owner's `settings` row (RESTORE_ORDER deletes
+		// every listed table regardless of whether the payload carries it), and
+		// this route 409s with no settings row to read a currency symbol from.
+		it('.ics reminder route refuses a subscription belonging to another user', async () => {
+			const { GET } = await import('../../routes/subscriptions/[id]/reminder.ics/+server');
+
+			const ownerSubId = m.subs.createSubscription(OWNER, {
+				label: 'Owner-only trial',
+				amountMinor: 54_900,
+				cadence: 'monthly',
+				nextChargeOn: '2026-09-24',
+				trialEndsOn: '2026-09-24',
+				cancelByOn: '2026-09-24'
+			});
+
+			// The owner can fetch their own reminder.
+			const ownRes = GET({
+				params: { id: String(ownerSubId) },
+				locals: { userId: OWNER }
+			} as never) as Response;
+			expect(ownRes.headers.get('Content-Type')).toContain('text/calendar');
+			expect(await ownRes.text()).toContain('Owner-only trial');
+
+			// The stranger must not be able to fetch it by id, whether or not
+			// they know it exists — a 404, not the owner's calendar text.
+			expect(() =>
+				GET({ params: { id: String(ownerSubId) }, locals: { userId: STRANGER } } as never)
+			).toThrow();
+		});
+
 		it('import writes the caller as owner, whatever the file claims', async () => {
 			const { POST } = await import('../../routes/api/import/+server');
 			const payload = {
@@ -268,9 +299,8 @@ describe('tenancy', () => {
 				locals: { userId: OWNER }
 			} as never);
 
-			const planted = m.sqlite
-				.prepare(`SELECT user_id FROM wait_item WHERE id = 4242`)
-				.get() as { user_id: number } | undefined;
+			const planted = m.sqlite.prepare(`SELECT user_id FROM wait_item WHERE id = 4242`).get() as
+				{ user_id: number } | undefined;
 			// The id in the payload is ignored; the session decides.
 			expect(planted?.user_id).toBe(OWNER);
 		});

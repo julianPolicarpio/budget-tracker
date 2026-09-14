@@ -1,7 +1,7 @@
 import { fail, type Actions } from '@sveltejs/kit';
 import { loadSettings } from '$lib/server/today';
 import { openPeriodOn } from '$lib/server/rollover';
-import { localToday } from '$lib/server/clock';
+import { localToday, daysBetween } from '$lib/server/clock';
 import { parseMoney } from '$lib/money';
 import { isCategory } from '$lib/categories';
 import {
@@ -19,7 +19,13 @@ import {
 	restoreSubscription,
 	getSubscription
 } from '$lib/server/subscriptions';
-import { CADENCES, DEFAULT_LEAD_DAYS, type Cadence } from '$lib/subscription-cadence';
+import {
+	CADENCES,
+	DEFAULT_LEAD_DAYS,
+	FINAL_ALERT_DAYS,
+	trialAlertDays,
+	type Cadence
+} from '$lib/subscription-cadence';
 import type { PageServerLoad } from './$types';
 
 /** YYYY-MM-DD, and a real date — `2027-02-31` parses but does not exist. */
@@ -161,9 +167,17 @@ export const actions: Actions = {
 		}
 		const nextChargeOn = rawFreeUntil || advanceCharge({ nextChargeOn: today, cadence });
 
-		// A trial's deadline is longer than one billing cycle away, so the
-		// cadence-scaled lead would be far too short to act on. Give it a month.
-		const leadDays = rawFreeUntil ? 30 : DEFAULT_LEAD_DAYS[cadence];
+		// Spec §7.3: a trial used to force a flat 30-day lead regardless of how
+		// long the trial itself ran, so a 7-day trial's first warning fired the
+		// moment it was recorded and its second warning fired the very next
+		// sweep — both alerts inside 48 hours, then silence until the charge
+		// landed. The lead is now a fraction of the trial's own length, read
+		// off how far the deadline is *today* (`daysBetween`), not the fixed
+		// cadence default that assumes a bill's usual gap between charges. A
+		// non-trial quick-add keeps exactly the prior behaviour.
+		const { leadDays, finalLeadDays } = rawFreeUntil
+			? trialAlertDays(daysBetween(today, rawFreeUntil))
+			: { leadDays: DEFAULT_LEAD_DAYS[cadence], finalLeadDays: FINAL_ALERT_DAYS };
 
 		createSubscription(locals.userId, {
 			label,
@@ -175,6 +189,7 @@ export const actions: Actions = {
 			// Discretionary: the renewal IS the decision point (Spec §374).
 			cancelByOn: isEssential ? null : nextChargeOn,
 			leadDays,
+			finalLeadDays,
 			isEssential
 		});
 		return { added: true };
@@ -290,5 +305,61 @@ export const actions: Actions = {
 		if (!Number.isInteger(id)) return fail(400, { error: 'Unknown subscription.' });
 		markUsed(locals.userId, id, localToday(settings.timezone));
 		return { used: true };
+	},
+
+	/**
+	 * The paste-a-trial-confirmation flow (Spec §7.1). `trial-parser.ts` runs
+	 * client-side and fills what it can read off the pasted text; this action
+	 * only ever sees the reviewed/completed result, the same shape `quickAdd`
+	 * already handles above.
+	 *
+	 * `isEssential` is never a field here and is never sent — Spec §7.1 is
+	 * explicit that a trial signed up for in order to cancel is never
+	 * essential, so the question is not asked and the row is never created
+	 * that way.
+	 */
+	addFromPaste: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
+		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
+
+		const form = await request.formData();
+		const label = String(form.get('label') ?? '').trim();
+		if (!label) return fail(400, { field: 'pasteLabel', error: 'Name the trial.' });
+
+		const amountMinor = parseMoney(String(form.get('amount') ?? ''), settings.minorUnits);
+		if (amountMinor === null || amountMinor <= 0) {
+			return fail(400, { field: 'pasteAmount', error: 'Enter the price it converts to.' });
+		}
+
+		const cadence = String(form.get('cadence') ?? '') as Cadence;
+		if (!CADENCES.includes(cadence)) {
+			return fail(400, {
+				field: 'pasteCadence',
+				error: 'Pick how often it bills after the trial.'
+			});
+		}
+
+		const trialEndsOn = String(form.get('trialEndsOn') ?? '').trim();
+		if (!isDate(trialEndsOn)) {
+			return fail(400, { field: 'pasteDate', error: 'Give the date it converts.' });
+		}
+
+		const today = localToday(settings.timezone);
+		// Spec §7.3, same fix as quickAdd: the lead scales to how far away the
+		// trial's own deadline is right now, not a flat 30 days.
+		const { leadDays, finalLeadDays } = trialAlertDays(daysBetween(today, trialEndsOn));
+
+		createSubscription(locals.userId, {
+			label,
+			amountMinor,
+			cadence,
+			nextChargeOn: trialEndsOn,
+			trialEndsOn,
+			cancelByOn: trialEndsOn,
+			leadDays,
+			finalLeadDays,
+			isEssential: false
+		});
+		return { addedFromPaste: true };
 	}
 };

@@ -17,15 +17,17 @@ import { and, asc, eq, isNotNull, isNull, lte } from 'drizzle-orm';
 import { forUser, schema } from './db';
 import { addDays, daysBetween } from './clock';
 import { addMonths } from './irregulars';
-import { CADENCE_STEP, type Cadence } from '$lib/subscription-cadence';
+import { CADENCE_STEP, FINAL_ALERT_DAYS, type Cadence } from '$lib/subscription-cadence';
 
 export type { Cadence };
 
+// Re-exported for callers that already read the constant off this module —
+// the value itself lives in subscription-cadence.ts now, alongside
+// `trialAlertDays()`, which needs it and must stay importable from the
+// browser (see that module's doc).
+export { FINAL_ALERT_DAYS };
 
 export type Subscription = typeof schema.subscription.$inferSelect;
-
-/** Stage 2 fires this close to the deadline, whatever `leadDays` was set to. */
-export const FINAL_ALERT_DAYS = 7;
 
 /**
  * What this costs over a year.
@@ -47,9 +49,7 @@ export const FINAL_ALERT_DAYS = 7;
  */
 export function annualisedMinor(sub: Pick<Subscription, 'amountMinor' | 'cadence'>): number {
 	const step = CADENCE_STEP[sub.cadence as Cadence];
-	return step.kind === 'days'
-		? sub.amountMinor * (364 / step.n)
-		: sub.amountMinor * (12 / step.n);
+	return step.kind === 'days' ? sub.amountMinor * (364 / step.n) : sub.amountMinor * (12 / step.n);
 }
 
 /**
@@ -98,6 +98,10 @@ export interface NewSubscription {
 	trialEndsOn?: string | null;
 	cancelByOn?: string | null;
 	leadDays?: number;
+	/** Stage 2's own threshold (Spec §7.3, migration 0012). Defaults to
+	 * `FINAL_ALERT_DAYS` — the constant every subscription used before a
+	 * trial's own length could scale it down via `trialAlertDays()`. */
+	finalLeadDays?: number;
 	category?: string | null;
 	note?: string | null;
 	isEssential?: boolean;
@@ -128,7 +132,11 @@ export interface NewSubscription {
  */
 const AVG_DAYS_PER_MONTH = 365.25 / 12;
 
-export function commitmentsPerPeriod(userId: number, daysPerPeriod: number, today?: string): number {
+export function commitmentsPerPeriod(
+	userId: number,
+	daysPerPeriod: number,
+	today?: string
+): number {
 	return Math.round(
 		listSubscriptions(userId).reduce((sum, sub) => {
 			// A commitment still inside its free trial costs nothing yet. Reserving
@@ -146,9 +154,10 @@ export function commitmentsPerPeriod(userId: number, daysPerPeriod: number, toda
 }
 
 /** Split by whether cancelling is even an option — the cull only hunts one side. */
-export function commitmentsByKind(
-	userId: number
-): { essential: Subscription[]; discretionary: Subscription[] } {
+export function commitmentsByKind(userId: number): {
+	essential: Subscription[];
+	discretionary: Subscription[];
+} {
 	const live = listSubscriptions(userId);
 	return {
 		essential: live.filter((s) => s.isEssential === 1),
@@ -174,6 +183,7 @@ export function createSubscription(
 			trialEndsOn: input.trialEndsOn ?? null,
 			cancelByOn: input.cancelByOn ?? null,
 			leadDays: input.leadDays ?? 30,
+			finalLeadDays: input.finalLeadDays ?? FINAL_ALERT_DAYS,
 			alertStage: 0,
 			alertedAt: null,
 			lastUsedOn: null,
@@ -223,6 +233,11 @@ export function updateSubscription(userId: number, id: number, input: Subscripti
 			trialEndsOn: input.trialEndsOn ?? null,
 			cancelByOn: input.cancelByOn ?? null,
 			leadDays: input.leadDays,
+			// Not on the edit form (see SubscriptionEdit.svelte) — preserved
+			// rather than reset, so a plain label/amount correction cannot
+			// silently widen a trial-scaled stage-2 threshold back to the
+			// constant default.
+			finalLeadDays: input.finalLeadDays ?? before.finalLeadDays,
 			category: input.category ?? null,
 			note: input.note ?? null,
 			isEssential: input.isEssential ? 1 : 0,
@@ -322,14 +337,23 @@ export function pendingAlerts(userId: number, today: string): PendingAlert[] {
 
 		if (sub.alertStage < 1 && daysLeft <= sub.leadDays) {
 			out.push({ sub, stage: 1, daysLeft });
-		} else if (sub.alertStage < 2 && daysLeft <= FINAL_ALERT_DAYS) {
+			// `finalLeadDays` (Spec §7.3, migration 0012) replaces the constant
+			// `FINAL_ALERT_DAYS` here: a trial's own length can put its second
+			// alert closer than 7 days out, and reading it off the row is what
+			// lets `trialAlertDays()` set a threshold shorter than the default.
+		} else if (sub.alertStage < 2 && daysLeft <= sub.finalLeadDays) {
 			out.push({ sub, stage: 2, daysLeft });
 		}
 	}
 	return out;
 }
 
-export function recordAlert(userId: number, id: number, stage: 1 | 2, now: Date = new Date()): void {
+export function recordAlert(
+	userId: number,
+	id: number,
+	stage: 1 | 2,
+	now: Date = new Date()
+): void {
 	const { db, owns } = forUser(userId);
 	db.update(schema.subscription)
 		.set({ alertStage: stage, alertedAt: now.toISOString() })

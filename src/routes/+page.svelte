@@ -526,7 +526,8 @@
 			the price invites haggling with yourself instead of answering it.
 		-->
 		{#if view.subscriptionDue}
-			<p class="horizon">
+			<!-- A `div`, not a `p`: HTML forbids nesting a `<form>` inside `<p>`. -->
+			<div class="horizon">
 				<a class="sub-due" href="/subscriptions">
 					{view.subscriptionDue.isTrial ? 'Free trial ends' : 'Renews'} —
 					{view.subscriptionDue.label}
@@ -535,7 +536,25 @@
 					<span aria-hidden="true">!</span>
 					{relativeDays(view.subscriptionDue.deadline, view.date)}
 				</span>
-			</p>
+				<!--
+					Spec §7.4: the same one-click decision the review cull already has,
+					reached from wherever the deadline is actually shown. No new
+					widget — this is the existing subscriptionDue line, not an addition
+					to Today's closed widget list (Spec §8.1).
+				-->
+				<form method="POST" action="?/cancelSub" use:enhance class="sub-due-cancel">
+					<input type="hidden" name="id" value={view.subscriptionDue.id} />
+					<button type="submit" class="mini">I cancelled it</button>
+				</form>
+			</div>
+		{:else if form?.cancelledSubId}
+			<div class="horizon">
+				<span>Cancelled {form.cancelledSubLabel}.</span>
+				<form method="POST" action="?/restoreSub" use:enhance class="sub-due-cancel">
+					<input type="hidden" name="id" value={form.cancelledSubId} />
+					<button type="submit" class="mini">Undo</button>
+				</form>
+			</div>
 		{/if}
 
 		<!-- ── Today's entries. No running total — that is a balance in disguise. -->
@@ -544,11 +563,11 @@
 				<ul>
 					{#each view.entries as entry, i (entry.id)}
 						<li
-						class="entry"
-						class:just-saved={form?.saved &&
-							(form?.wrote === undefined || form.wrote === 'transaction') &&
-							i === 0}
-					>
+							class="entry"
+							class:just-saved={form?.saved &&
+								(form?.wrote === undefined || form.wrote === 'transaction') &&
+								i === 0}
+						>
 							<span class="entry-cat">
 								{CATEGORIES.find((c) => c.key === entry.category)?.label}
 								{#if !entry.planned}
@@ -620,7 +639,12 @@
 					<legend class="sr-only">Category</legend>
 					{#each CATEGORIES as cat (cat.key)}
 						<label class="chip" class:on={mobileTripEntry.category === cat.key}>
-							<input type="radio" name="category" value={cat.key} bind:group={mobileTripEntry.category} />
+							<input
+								type="radio"
+								name="category"
+								value={cat.key}
+								bind:group={mobileTripEntry.category}
+							/>
 							{cat.label}
 						</label>
 					{/each}
@@ -1053,6 +1077,29 @@
 
 	.horizon-status.funded {
 		color: var(--status-good);
+	}
+
+	/* Spec §7.4's "I cancelled it" / undo, attached to the subscriptionDue
+	   line rather than a new widget. */
+	.sub-due-cancel {
+		display: inline-flex;
+		margin-left: auto;
+	}
+
+	.mini {
+		padding: 0.2rem 0.55rem;
+		background: none;
+		border: 1px solid var(--hairline-strong);
+		border-radius: 999px;
+		color: var(--ink-secondary);
+		font: inherit;
+		font-size: 0.6875rem;
+		cursor: pointer;
+	}
+
+	.mini:hover {
+		border-color: var(--ink-secondary);
+		color: var(--ink);
 	}
 
 	/* ── The 28-day record ────────────────────────────────────────────── */

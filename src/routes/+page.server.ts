@@ -15,7 +15,17 @@ import { tripDailyFigure } from '$lib/allowance';
 import { addWaitItem, resolveWaitItem } from '$lib/server/rules';
 import { isCategory } from '$lib/categories';
 import { parseMoney } from '$lib/money';
-import { answerWord, buildParseContext, commitResolvedEntry, resolveEntry } from '$lib/server/entry';
+import {
+	answerWord,
+	buildParseContext,
+	commitResolvedEntry,
+	resolveEntry
+} from '$lib/server/entry';
+import {
+	cancelSubscription,
+	getSubscription,
+	restoreSubscription
+} from '$lib/server/subscriptions';
 import type { PageServerLoad } from './$types';
 
 // Which commands the empty states should quote. Telling a containerised user
@@ -180,7 +190,11 @@ export const actions: Actions = {
 			return fail(400, { field: 'text', error: 'Type what you spent on.', rawText: text });
 		}
 		if (resolved.kind === 'ask_kind' || resolved.kind === 'ask_category') {
-			return fail(400, { field: 'text', error: 'Answer the question before saving.', rawText: text });
+			return fail(400, {
+				field: 'text',
+				error: 'Answer the question before saving.',
+				rawText: text
+			});
 		}
 
 		const now = new Date();
@@ -189,14 +203,22 @@ export const actions: Actions = {
 		let planned: boolean | undefined;
 		if (resolved.kind === 'transaction') {
 			if (rawPlanned !== '0' && rawPlanned !== '1') {
-				return fail(400, { field: 'planned', error: 'Mark it planned or unplanned.', rawText: text });
+				return fail(400, {
+					field: 'planned',
+					error: 'Mark it planned or unplanned.',
+					rawText: text
+				});
 			}
 			planned = rawPlanned === '1';
 		}
 
 		let commitmentMode: 'same' | 'same_essential' | 'varies' | undefined;
 		if (resolved.kind === 'new_commitment') {
-			if (rawCommitmentMode !== 'same' && rawCommitmentMode !== 'same_essential' && rawCommitmentMode !== 'varies') {
+			if (
+				rawCommitmentMode !== 'same' &&
+				rawCommitmentMode !== 'same_essential' &&
+				rawCommitmentMode !== 'varies'
+			) {
 				return fail(400, {
 					field: 'commitmentMode',
 					error: 'Choose same, same and non-negotiable, or varies.',
@@ -336,7 +358,9 @@ export const actions: Actions = {
 
 		const { db, owns } = forUser(locals.userId);
 		db.delete(schema.txn)
-			.where(and(owns(schema.txn), sql`${schema.txn.id} = ${id} AND ${schema.txn.spentOn} = ${today}`))
+			.where(
+				and(owns(schema.txn), sql`${schema.txn.id} = ${id} AND ${schema.txn.spentOn} = ${today}`)
+			)
 			.run();
 
 		// Keep the day's entry count honest, but never un-close the day.
@@ -348,5 +372,36 @@ export const actions: Actions = {
 		if (closed) closeLogDay(locals.userId, today, now);
 
 		return { deleted: true };
+	},
+
+	/**
+	 * "I cancelled it" (Spec §7.4). No new capability — `cancelSubscription()`
+	 * already exists — only a way in from wherever a deadline is actually
+	 * shown. Today's widget list is closed (Spec §8.1), so this attaches to
+	 * the existing `subscriptionDue` horizon line rather than adding one; the
+	 * cull screen already has its own "Cancelled it" plus a restore, and this
+	 * gives Today the same one-click decision with undo.
+	 */
+	cancelSub: async ({ request, locals }) => {
+		const id = Number((await request.formData()).get('id'));
+		if (!Number.isInteger(id)) return fail(400, { error: 'Unknown subscription.' });
+
+		// getSubscription() is scoped through forUser() — an id belonging to
+		// another tenant simply is not found here, same as everywhere else.
+		const sub = getSubscription(locals.userId, id);
+		if (!sub) return fail(400, { error: 'Unknown subscription.' });
+
+		cancelSubscription(locals.userId, id);
+		// Carries the label so the undo notice below can name what it is
+		// undoing without a second lookup after the reload `use:enhance` triggers.
+		return { cancelledSubId: id, cancelledSubLabel: sub.label };
+	},
+
+	/** Undo an "I cancelled it" typed on Today. One click made it, one undoes it. */
+	restoreSub: async ({ request, locals }) => {
+		const id = Number((await request.formData()).get('id'));
+		if (!Number.isInteger(id)) return fail(400, { error: 'Unknown subscription.' });
+		restoreSubscription(locals.userId, id);
+		return { restoredSubId: id };
 	}
 };
