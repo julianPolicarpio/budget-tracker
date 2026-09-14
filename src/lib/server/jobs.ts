@@ -22,6 +22,7 @@ import { pendingAlerts, recordAlert } from './subscriptions';
 import { notify } from './notify';
 import { localToday } from './clock';
 import { loadSettings } from './today';
+import { reapDemoUsers } from './demo';
 import { dirname, join } from 'node:path';
 
 export type JobKey = 'rollover' | 'irregulars' | 'backup';
@@ -195,6 +196,17 @@ export function startScheduler(): void {
 	schedule('0 3 * * *', 'backup', timezone);
 
 	/*
+	 * Reaping demo tenants is global, not per-user, so it is scheduled directly
+	 * rather than added to JOB_KEYS — that loop runs its body once per live
+	 * user, and a sweep that deletes every expired demo would do it N times.
+	 *
+	 * It also exercises the ON DELETE CASCADE path nightly, which is the same
+	 * mechanism backing the account-deletion promise in §3.5. Better to find
+	 * that broken here than on someone's first deletion request.
+	 */
+	cron.schedule('30 3 * * *', () => sweepDemoTenants(), { timezone });
+
+	/*
 	 * The sweep that makes the above survive a sleeping machine.
 	 *
 	 * Catch-up at process start is not enough: a laptop that suspends through
@@ -205,6 +217,8 @@ export function startScheduler(): void {
 	 * Every job is idempotent and keyed by the local date, so re-asking costs
 	 * one indexed lookup and does nothing until the date actually turns over.
 	 */
+	sweepDemoTenants();
+
 	setInterval(() => {
 		for (const key of JOB_KEYS) {
 			try {
@@ -235,4 +249,15 @@ function schedule(expression: string, jobKey: JobKey, timezone: string): void {
 		},
 		{ timezone }
 	);
+}
+
+
+/** Delete expired demo tenants, logging only when something actually went. */
+function sweepDemoTenants(): void {
+	try {
+		const reaped = reapDemoUsers();
+		if (reaped > 0) console.log(`[jobs] reaped ${reaped} demo tenant(s)`);
+	} catch (err) {
+		console.error('[jobs] demo reaper failed:', err);
+	}
 }

@@ -42,7 +42,15 @@ startScheduler();
  * to poll.
  */
 function isPublicPath(pathname: string): boolean {
-	return pathname === '/signin' || pathname === '/api/health' || pathname.startsWith('/auth/');
+	return (
+		pathname === '/signin' ||
+		pathname === '/api/health' ||
+		// The demo mints its own tenant and its own session (§3.4). Requiring a
+		// session to reach it would be circular, and the whole point is that a
+		// reviewer gets in without signing up for anything.
+		pathname === '/demo' ||
+		pathname.startsWith('/auth/')
+	);
 }
 
 export const handle: Handle = ({ event, resolve }) => {
