@@ -251,6 +251,7 @@
 		<Figure
 			title="Accrued against required"
 			emptyNote="Appears after two completed weekly reviews — the balance you assert at R1 is what draws this line."
+			minPoints={3}
 			columns={['Week ending', 'Accrued', 'Required (90 days)']}
 			rows={data.history.map((h) => [
 				dayLabel(h.endsOn),
@@ -366,6 +367,7 @@
 		<Figure
 			title="Estimate accuracy — expected against actual"
 			emptyNote="Appears once you have settled an irregular. The gap between what you expected and what it cost is the most useful number this app will ever show you."
+			minPoints={3}
 			columns={['Label', 'Settled', 'Expected', 'Actual', 'Error']}
 			rows={data.accuracy.map((a) => [
 				a.label,

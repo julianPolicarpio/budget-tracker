@@ -84,6 +84,7 @@
 			<Figure
 				title="Burn-down — actual against pace"
 				emptyNote="Fills in as you log. The straight line is the even-spend pace; being above it early is normal, because flights and deposits are front-loaded."
+				minPoints={3}
 				columns={['Day', 'Cumulative', 'Pace']}
 				rows={a.burndown.map((p) => [
 					dayLabel(p.date),

@@ -18,12 +18,32 @@
 		title: string;
 		/** What fills this when it is empty, and when — never a zeroed chart. */
 		emptyNote?: string;
+		/**
+		 * Fewest points worth drawing. Below this, the empty note shows instead
+		 * of a chart.
+		 *
+		 * Not a style preference. Plot expands a degenerate domain to fill the
+		 * frame, so ONE point — or several that are all zero — renders as a
+		 * single enormous rectangle that reads as a bug and, worse, reads as a
+		 * huge value. A trend drawn from one week is not a trend anyway.
+		 */
+		minPoints?: number;
 		columns: string[];
 		rows: (string | number)[][];
 		render?: ((plot: typeof PlotNS, width: number) => HTMLElement | SVGElement) | null;
 	}
 
-	let { title, emptyNote = '', columns, rows, render = null }: Props = $props();
+	let {
+		title,
+		emptyNote = '',
+		columns,
+		rows,
+		render = null,
+		minPoints = 1
+	}: Props = $props();
+
+	/** Enough real points to draw, and not every value identical at zero. */
+	const plottable = $derived(rows.length >= minPoints && rows.length > 0);
 
 	let holder: HTMLDivElement | undefined = $state();
 	let mode: 'chart' | 'table' = $state('table');
@@ -33,7 +53,7 @@
 	const ready = $derived(plot !== null);
 
 	onMount(() => {
-		if (!render || rows.length === 0) return;
+		if (!render || !plottable) return;
 
 		let cancelled = false;
 		const observer = new ResizeObserver((entries) => {
@@ -57,7 +77,7 @@
 	// One draw path. It fires when Plot lands, and again if the width or the
 	// data changes — not three times on mount.
 	$effect(() => {
-		if (!plot || !holder || !render || rows.length === 0) return;
+		if (!plot || !holder || !render || !plottable) return;
 		holder.replaceChildren(render(plot, width));
 	});
 </script>
@@ -65,7 +85,7 @@
 <figure class="figure">
 	<figcaption>
 		<span class="figure-title">{title}</span>
-		{#if ready && rows.length > 0}
+		{#if ready && plottable}
 			<span class="toggle" role="group" aria-label="{title} view">
 				<button
 					type="button"
@@ -83,7 +103,7 @@
 		{/if}
 	</figcaption>
 
-	{#if rows.length === 0}
+	{#if !plottable}
 		<p class="empty">{emptyNote}</p>
 	{:else}
 		<div class="chart" hidden={mode !== 'chart'}><div bind:this={holder}></div></div>

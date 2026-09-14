@@ -244,6 +244,7 @@
 				<Figure
 					title="Impulse spending, last 12 weeks"
 					emptyNote="Fills in as you finish reviews. Two points is not a trend, so this stays empty until there are three."
+					minPoints={3}
 					columns={['Week', 'Impulse spending']}
 					rows={data.trend
 						.filter((t) => t.unplannedRatioBp !== null)
@@ -281,7 +282,8 @@
 
 				<Figure
 					title="Spent per week, last 12 weeks"
-					emptyNote="Fills in as you finish reviews."
+					emptyNote="Fills in as you finish reviews. Three weeks is the fewest worth drawing."
+					minPoints={3}
 					columns={['Week', 'Spent']}
 					rows={data.trend
 						.filter((t) => t.totalSpentMinor !== null)
