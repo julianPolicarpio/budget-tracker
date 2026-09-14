@@ -1,15 +1,75 @@
 # Split
 
-A personal budgeting server that implements The Split System: five accounts, one
-daily number, four rules, five rituals. Single user, self-hosted, manual entry.
+**A budgeting app that refuses to show you your balance.**
 
-Full documentation: [`split-combined-spec.md`](split-combined-spec.md). Read
-Part One before writing code — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for why.
+It is deliberately worse at everything budgeting apps compete on — live
+balances, rich categories, automatic import — because the field evidence says
+each of those measurably makes people spend more. The constraints below are
+load-bearing, not oversights, and most of them are enforced by a test rather
+than by remembering.
 
-**This is Phase 4** (Spec §13) — the roadmap's last build phase. Everything from
-Phases 1–3, plus Trip Mode end to end, the debt payoff price switch, the
-pre-seeded if-then plans and the 72-hour list, the trends grid, and
-export/import.
+[Try the demo](/demo) — the real app with ninety days of history in it, no
+email, deletes itself after a day.
+
+## The seven rules
+
+| # | The rule | Why it is not an oversight |
+|---|---|---|
+| 1 | The daily screen never shows a balance | Seeing a large balance reliably makes people spend more. `todayView()` has no field for one, so adding it is a compile error rather than a code-review conversation. |
+| 2 | The daily number is a range, not a number | "₱103 left" reads as permission to spend ₱103, then a little past it. A range has no edge to spend up to. |
+| 3 | You type every purchase yourself | No bank, card or e-wallet sync, ever. The typing is the mechanism; automatic tracking removes the one moment where you notice. |
+| 4 | Eight category roots, and no budget on any of them | Subdividing a spending budget is the one intervention that measurably backfired. Categories exist for the weekly review and nothing else. |
+| 5 | Underspending does not raise tomorrow's number | Set once when the week opens and frozen. `dailyAllowance()` takes no `daysRemaining` parameter, and that absence is the point. |
+| 6 | A 15% cushion comes off the top, hidden | People cannot hold a mental buffer, so the app holds it structurally and sweeps it to savings at the close. |
+| 7 | Bills never touch your spending money | Commitments are reserved before the daily figure is computed. A cost you cannot decline has no business competing with a coffee. |
+
+Rule 4 was relaxed once, deliberately and on the record: categories may now
+*grow*, as leaves under the eight fixed roots, because the finding it rests on
+prohibits attaching **budgets** to categories — which stays absolute — not
+having more labels. The reasoning is in the design notes.
+
+## The parts worth reading
+
+**Tenancy is enforced by making the mistake impossible, not by care.** The
+unscoped database handle is never exported from `src/lib/server/db/index.ts`;
+every query goes through `forUser(userId)`. Three layers back it up: `user_id
+NOT NULL` on all twenty tables, a test that enumerates the live schema and fails
+any table that lacks it, and a two-tenant leak test that drives every read path
+as one user and asserts zero rows of the other come back. That last one gates
+every public step.
+
+**The withholding layer is a type, not a convention.** `todayView()`'s return
+type has no balance field, so the rule that makes this app what it is cannot be
+broken by accident.
+
+**Typed entry guesses the category freely and never guesses the record type.**
+`kape 65` is a transaction; `wifi bill 750` is a commitment that is already
+reserved and must not be logged again. A wrong category costs one line in a
+review; a wrong record type counts the wifi twice and corrupts the daily figure
+for the rest of the period. Ambiguity resolves to a question, never a default.
+
+**Offline logging is one-way replay, not sync.** `txn.client_uuid` is UNIQUE and
+the log action already treats a repeat as a double-submit, so replaying a queue
+is safe by construction. Only the user's own device creates transactions, so
+there is no merge and no conflict resolution.
+
+**Money is integer minor units everywhere.** No floats, no `parseFloat` outside
+`src/lib/money`.
+
+**Migrations are real, reviewable SQL** with a prose header saying *why*, applied
+once each inside a transaction, with `PRAGMA foreign_key_check` read afterwards
+and an orphaned reference treated as fatal.
+
+## Check the claims
+
+```bash
+npm test          # every rule above, plus the tenancy leak test
+npm run check     # svelte-check, zero errors
+```
+
+Full design documentation: [`split-combined-spec.md`](split-combined-spec.md).
+Read Part One before writing code — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for
+why.
 
 ## Run it
 
@@ -357,10 +417,21 @@ Migrations run at container start, so a container that is up is a container
 whose schema is current. `GET /api/health` is the container health check and
 returns nothing but `{"ok":true}`.
 
-### The bind address is the auth boundary
+### The bind address, and what replaced it
 
-Split has no login. Whatever reaches the port reads your entire financial
-history, so the bind address _is_ the security control (invariant 10).
+**This changed.** Split used to have no login, so the bind address *was* the
+security control — invariant 10, and `scripts/serve.js` enforced it by refusing
+to start on a public interface.
+
+Going multi-user reversed that. Authorisation is now application code:
+Google sign-in, a session cookie, and the `forUser(userId)` choke point that
+makes an unscoped query impossible to write. The security that network
+isolation gave for free is now something tests have to prove, which is why the
+two-tenant leak test gates every public step.
+
+The loopback default below still stands and is still the right thing for a
+single-user install on your own machine. Nothing is reachable from outside
+until you deliberately change it.
 
 `docker-compose.yml` publishes to `127.0.0.1:3000` — out of the box nothing is
 reachable from outside the machine, even on a host with a public IP. To reach

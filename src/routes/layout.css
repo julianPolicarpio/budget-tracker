@@ -24,6 +24,13 @@
 	--ink-muted: #898781;
 
 	--accent: #3987e5;
+	/*
+	 * For FILLED controls carrying white text. --accent is tuned to sit on the
+	 * dark ground as a line or a mark; white on it is 3.64:1, below the 4.5:1
+	 * floor for text. This darker step clears it at 6.3:1 and is used only
+	 * where a solid button needs a background.
+	 */
+	--accent-solid: #1f5fb0;
 	/* Categorical hues only where series identity is the subject. Category
 	   bars are magnitude, so they use series-1 alone, sorted descending —
 	   eight colours across eight categories is the classic mistake (§8.6). */
@@ -56,6 +63,8 @@
 		--ink-muted: #6f6e69;
 
 		--accent: #2a78d6;
+		/* White on #2a78d6 is 4.41:1 — also short of the floor. */
+		--accent-solid: #1f5fb0;
 		--series-1: #2a78d6;
 		--series-2: #eb6834;
 		--status-good: #0a7a0a;

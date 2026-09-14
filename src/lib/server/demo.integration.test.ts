@@ -11,6 +11,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { applyMigrations } from '../../../scripts/apply-migrations.js';
 
 let m: {
@@ -89,6 +90,28 @@ describe('a demo tenant is an ordinary tenant', () => {
 			.all(a) as { u: number }[];
 		expect(rows.every((r) => r.u === a)).toBe(true);
 		expect(a).not.toBe(b);
+	});
+});
+
+describe('the landing page makes a checkable claim', () => {
+	it('lists exactly the seven rules the README lists', () => {
+		const page = readFileSync(resolve('src/routes/signin/+page.svelte'), 'utf8');
+		const rules = page.match(/\n\t\t\trule: '/g) ?? [];
+		expect(rules).toHaveLength(7);
+	});
+
+	it('offers the demo as a POST, never a link a crawler can follow', () => {
+		const page = readFileSync(resolve('src/routes/signin/+page.svelte'), 'utf8');
+		expect(page).toContain(`method="POST" action="/demo"`);
+		expect(page).not.toContain(`href="/demo"`);
+	});
+
+	it('uses the accessible accent for the filled button, not the line accent', () => {
+		const page = readFileSync(resolve('src/routes/signin/+page.svelte'), 'utf8');
+		const css = readFileSync(resolve('src/routes/layout.css'), 'utf8');
+		// White on --accent is 3.64:1 in dark and 4.41:1 in light; both fail.
+		expect(page).toContain('var(--accent-solid');
+		expect(css).toContain('--accent-solid');
 	});
 });
 
