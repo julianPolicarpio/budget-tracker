@@ -80,10 +80,16 @@ export const handle: Handle = ({ event, resolve }) => {
 	 */
 	if (CANONICAL_ORIGIN && event.request.method === 'GET') {
 		const want = new URL(CANONICAL_ORIGIN);
-		if (event.url.host !== want.host) {
-			const to = new URL(event.url);
-			to.protocol = want.protocol;
-			to.host = want.host;
+
+		/*
+		 * The HOST HEADER, not event.url. With ORIGIN set, adapter-node rewrites
+		 * event.url to the canonical origin on every request, so comparing
+		 * against it can never differ and the check silently does nothing —
+		 * which is exactly what the first version of this did.
+		 */
+		const actual = event.request.headers.get('host');
+		if (actual && actual !== want.host) {
+			const to = new URL(event.url.pathname + event.url.search, CANONICAL_ORIGIN);
 			redirect(307, to.toString());
 		}
 	}
