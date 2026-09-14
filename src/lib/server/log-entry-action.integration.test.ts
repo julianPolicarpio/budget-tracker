@@ -109,6 +109,25 @@ describe('a known word resolves to a transaction with the right root, and saves'
 		expect(second).toEqual({ saved: true, wrote: 'transaction' });
 		expect(txnCount()).toBe(before + 1);
 	});
+
+	it('replaying the same client_uuid fifty times still writes exactly one row (Spec §11.12, task A5)', async () => {
+		// This is what the offline outbox (src/lib/outbox.ts) actually leans
+		// on: a flaky reconnect can retry a queued row an unbounded number of
+		// times before a definitive success is ever seen client-side, and
+		// task A5 is "one-way replay, not sync" specifically because this
+		// server-side guarantee already existed and needed no new work here —
+		// this test is what proves that claim at more than double-submit
+		// scale, not just the two attempts the test above covers.
+		const before = txnCount();
+		const fields = { text: 'kape 45', clientUuid: 'test-replay-fifty', planned: '1' };
+
+		for (let i = 0; i < 50; i++) {
+			const result = await invoke('logEntry', fields);
+			expect(result).toEqual({ saved: true, wrote: 'transaction' });
+		}
+
+		expect(txnCount()).toBe(before + 1);
+	});
 });
 
 describe('an unknown word blocks saving until answered', () => {

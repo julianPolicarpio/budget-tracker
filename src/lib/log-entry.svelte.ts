@@ -24,6 +24,7 @@
 import type { SubmitFunction } from '@sveltejs/kit';
 import { parseEntry, type ParseContext, type ParsedEntry } from './entry-parser';
 import type { CategoryKey } from './categories';
+import * as outbox from './outbox';
 
 export type PlannedFlag = '' | '0' | '1';
 
@@ -214,6 +215,85 @@ export function logSubmit(
 				entry.reset();
 				onSaved?.(saved);
 			}
+		};
+	};
+}
+
+/**
+ * The offline-safe save path (Spec §6, task A5) — what `+page.svelte` and
+ * `LogOverlay.svelte` actually wire the typed-entry form to now, in place of
+ * `logSubmit` above. `logSubmit` itself is left exactly as it was (it is
+ * still directly imported and tested by name in `log-entry.test.ts`); this
+ * is a second, separate factory rather than a rewrite of the first.
+ *
+ * The owner's own words are the spec here: *"i need it to log fast but the
+ * web is not loading fast enough and the data signal is not reliable."* So
+ * the outbox write and the field clear happen BEFORE the network is even
+ * asked — `outbox.enqueue()` is fired without awaiting it, `entry.reset()`
+ * runs the same tick, and only THEN does `use:enhance`'s own fetch get
+ * dispatched (SvelteKit calls this factory synchronously and only builds the
+ * request after it returns — see `node_modules/@sveltejs/kit/src/runtime/
+ * app/forms.js`'s `handle_submit`). Whether that fetch takes 40ms or never
+ * resolves at all, the field has already cleared.
+ *
+ * `result.type === 'error'` is what a dead connection actually produces from
+ * `enhance` (a thrown fetch is caught there and turned into that result,
+ * never left to reject) — deliberately NOT passed to `update()`, because the
+ * default fallback for an 'error' result navigates to the nearest error
+ * boundary, which is exactly wrong for "no signal, try again later". The row
+ * `outbox.enqueue()` wrote simply stays queued; nothing else has to happen.
+ */
+export function offlineLogSubmit(
+	entry: LogEntry,
+	getResolved: () => ParsedEntry,
+	userId: number,
+	onSaved?: (s: ParsedEntry) => void,
+	onQueueChanged?: () => void
+): SubmitFunction {
+	return () => {
+		const saved = getResolved();
+		const snapshot = {
+			userId,
+			text: entry.text,
+			planned: entry.planned,
+			commitmentMode: entry.commitmentMode,
+			taughtWord: entry.taughtWord,
+			taughtEnglish: entry.taughtEnglish,
+			taughtRoot: entry.taughtRoot,
+			clientUuid: entry.clientUuid
+		};
+
+		// Queue, then clear — both synchronous from the caller's point of
+		// view; the IndexedDB write itself is async, but nothing here waits
+		// on it before the field goes blank.
+		const queued = outbox
+			.enqueue(snapshot)
+			.catch((err) => {
+				// IndexedDB failing at all (quota, private-mode restrictions) is
+				// rare enough that surfacing it to the console is enough — the
+				// field has already cleared and there is no queued row to show
+				// for it, which is the one case this design does not cover.
+				console.error('[split] failed to queue offline entry', err);
+				return null;
+			})
+			.finally(() => onQueueChanged?.());
+		entry.reset();
+
+		return async ({ result, update }) => {
+			if (result.type === 'success') {
+				await update({ reset: false });
+				const row = await queued;
+				if (row) await outbox.remove(row.id).finally(() => onQueueChanged?.());
+				onSaved?.(saved);
+				return;
+			}
+			if (result.type === 'failure') {
+				// A real, online rejection (e.g. the server re-resolved the text
+				// differently) — safe to surface normally. The queued row is
+				// left in place either way (this function's own doc comment).
+				await update({ reset: false });
+			}
+			// 'error' (no network at all): do nothing. See doc comment above.
 		};
 	};
 }

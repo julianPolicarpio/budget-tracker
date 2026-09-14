@@ -1,6 +1,23 @@
 <script lang="ts">
 	// One button. This is the whole page — Spec §8.0b's calm DAILY register,
 	// taken to its limit: there is nothing here to review and nothing to log.
+	import { onMount } from 'svelte';
+	import { clearAll } from '$lib/outbox';
+
+	/**
+	 * "Cleared on sign-out" (Spec §6, task A5). This screen is the one place
+	 * a signed-out browser always lands — by an explicit sign-out, an
+	 * expired session, or simply never having signed in — so wiping the
+	 * offline outbox here, unconditionally, is what stops a queued entry
+	 * from ever replaying into a different tenant after an account switch
+	 * on a shared device (the offline version of the leak Spec §3 exists to
+	 * prevent; see `src/lib/outbox.ts`'s module doc). Idempotent against an
+	 * empty or already-cleared store, so a first-time visitor pays nothing
+	 * for it.
+	 */
+	onMount(() => {
+		clearAll();
+	});
 </script>
 
 <svelte:head><title>Split — sign in</title></svelte:head>

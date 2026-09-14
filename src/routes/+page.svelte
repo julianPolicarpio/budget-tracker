@@ -1,17 +1,19 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import { enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
 	import LogOverlay from '$lib/components/LogOverlay.svelte';
 	import EntryResolution from '$lib/components/EntryResolution.svelte';
 	import { CATEGORIES, categoryLabel, type CategoryKey } from '$lib/categories';
 	import {
 		LogEntry,
 		TripEntry,
-		logSubmit,
+		offlineLogSubmit,
 		resolveLive,
 		tripSubmit,
 		type TripSnapshot
 	} from '$lib/log-entry.svelte';
+	import * as outbox from '$lib/outbox';
 	import type { ParsedEntry, ParseContext } from '$lib/entry-parser';
 	import { formatMoney, parseMoney } from '$lib/money';
 	import type { ActionData, PageData } from './$types';
@@ -57,6 +59,33 @@
 	let isDesktop = $state(false);
 	let toast = $state<string | null>(null);
 	let toastTimer: ReturnType<typeof setTimeout> | undefined;
+
+	/**
+	 * The offline outbox's queue count (Spec §6, task A5). A COUNT, never a
+	 * sum of money — Invariant 1 governs this line exactly as it governs the
+	 * hero band, and the markup below hides it entirely once it hits zero
+	 * rather than rendering an empty state.
+	 */
+	let queuedCount = $state(0);
+
+	async function refreshQueuedCount() {
+		if (data.userId == null) return;
+		queuedCount = await outbox.count(data.userId);
+	}
+
+	/** Runs on `online` and on app open (task A5 item 4's two GUARANTEED
+	 * triggers — Background Sync in service-worker.ts is a best-effort bonus
+	 * on top of these, never a replacement: iOS Safari has no Background
+	 * Sync at all, so app-open is the only thing that ever drains its
+	 * queue). A successful send changes what Today shows (a new entry, a
+	 * moved band), so `invalidateAll()` refreshes `view` the same way a live
+	 * save already does via `use:enhance`'s own `update()`. */
+	async function flushOutbox() {
+		if (data.userId == null) return;
+		const result = await outbox.flush(data.userId);
+		await refreshQueuedCount();
+		if (result.sent > 0) await invalidateAll();
+	}
 
 	function describeTrip(s: TripSnapshot): string {
 		const minorUnits = view!.trip ? view!.trip.currency.minorUnits : view!.currency.minorUnits;
@@ -165,9 +194,33 @@
 		}
 
 		window.addEventListener('keydown', onKeydown);
+
+		// The offline outbox (Spec §6, task A5). Three of its triggers live
+		// here: "app open" (this call, right away), "online" (the listener
+		// below), and telling a controlling service worker which user is
+		// live so its best-effort Background Sync handler never sends a row
+		// under the wrong session (service-worker.ts's own doc comment).
+		// Background Sync registration is the fourth trigger and is
+		// deliberately fire-and-forget — see `registerBackgroundSync()`.
+		refreshQueuedCount();
+		void flushOutbox();
+		function tellServiceWorker() {
+			if (data.userId != null) outbox.tellServiceWorkerCurrentUser(data.userId);
+		}
+		tellServiceWorker();
+		// The controlling worker can change after this mount (a fresh install
+		// only takes over once `clients.claim()` runs in `activate` — see
+		// service-worker.ts) — resend once that happens rather than assuming
+		// the very first attempt landed.
+		navigator.serviceWorker?.addEventListener('controllerchange', tellServiceWorker);
+		void outbox.registerBackgroundSync();
+		window.addEventListener('online', flushOutbox);
+
 		return () => {
 			mq.removeEventListener('change', onChange);
 			window.removeEventListener('keydown', onKeydown);
+			window.removeEventListener('online', flushOutbox);
+			navigator.serviceWorker?.removeEventListener('controllerchange', tellServiceWorker);
 			clearTimeout(toastTimer);
 		};
 	});
@@ -603,7 +656,13 @@
 				method="POST"
 				action="?/logEntry"
 				bind:this={mobileFormEl}
-				use:enhance={logSubmit(mobileEntry, () => mobileResolved)}
+				use:enhance={offlineLogSubmit(
+					mobileEntry,
+					() => mobileResolved,
+					data.userId,
+					undefined,
+					refreshQueuedCount
+				)}
 			>
 				<input type="hidden" name="clientUuid" value={mobileEntry.clientUuid} />
 				<input type="hidden" name="planned" value={mobileEntry.planned} />
@@ -644,6 +703,20 @@
 					<p class="err" role="alert">{form.error}</p>
 				{/if}
 			</form>
+
+			<!--
+				The offline outbox's queue (Spec §6, task A5). Part of the log form,
+				not a new Today widget — Today's widget list is closed (Spec §8.1) —
+				so this renders only while something is actually waiting and
+				disappears entirely the moment the queue is empty. A COUNT, never a
+				sum of money: Invariant 1 applies here exactly as it applies to the
+				band above.
+			-->
+			{#if queuedCount > 0}
+				<p class="queue-note" role="status">
+					{queuedCount === 1 ? '1 entry waiting to send' : `${queuedCount} entries waiting to send`}
+				</p>
+			{/if}
 		{/if}
 
 		<!-- Desktop only: the idle screen is the hero, so the way in is a hint. -->
@@ -664,6 +737,9 @@
 		{homeEquivalent}
 		ctx={parseContext}
 		entries={view.entries}
+		userId={data.userId}
+		{queuedCount}
+		onQueueChanged={refreshQueuedCount}
 		onClose={() => (overlayOpen = false)}
 		{onTripSaved}
 		onEntrySaved={onDesktopEntrySaved}
@@ -1263,6 +1339,16 @@
 		margin: 0;
 		color: var(--ink);
 		font-size: 0.875rem;
+	}
+
+	/* ── Offline outbox queue note (Spec §6, task A5) ────────────────────
+	   Quiet by design: this is a status line, not a prompt — it never gets
+	   a border or a background the way `.prompt` does, and it vanishes
+	   entirely rather than reading "0 entries waiting" when idle. */
+	.queue-note {
+		margin: -0.5rem 0 0;
+		color: var(--ink-muted);
+		font-size: 0.8125rem;
 	}
 
 	/* ── First run ────────────────────────────────────────────────────── */

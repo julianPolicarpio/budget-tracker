@@ -21,7 +21,7 @@
 	import { formatMoney } from '$lib/money';
 	import type { ParseContext, ParsedEntry } from '$lib/entry-parser';
 	import {
-		logSubmit,
+		offlineLogSubmit,
 		resolveLive,
 		tripSubmit,
 		LogEntry,
@@ -49,6 +49,15 @@
 			category: string;
 			planned: boolean;
 		}[];
+		/** Namespaces the offline outbox (Spec §6, task A5) — unused while a
+		 * trip is active, same as `ctx`, since trips still log through the
+		 * pre-A4 form which is not wired to the outbox. */
+		userId: number;
+		/** How many entries are queued right now, shared with `+page.svelte`
+		 * so the mobile shell and this overlay never show two different
+		 * counts for one outbox. */
+		queuedCount: number;
+		onQueueChanged: () => void;
 		onClose: () => void;
 		onTripSaved: (s: TripSnapshot) => void;
 		onEntrySaved: (s: ParsedEntry) => void;
@@ -63,6 +72,9 @@
 		homeEquivalent = null,
 		ctx,
 		entries,
+		userId,
+		queuedCount,
+		onQueueChanged,
 		onClose,
 		onTripSaved,
 		onEntrySaved
@@ -268,7 +280,12 @@
 				<button class="sr-only" type="submit" disabled={!tripEntry.ready}>Save entry</button>
 			</form>
 		{:else}
-			<form bind:this={formEl} method="POST" action="?/logEntry" use:enhance={logSubmit(entry, () => resolved, onEntrySaved)}>
+			<form
+				bind:this={formEl}
+				method="POST"
+				action="?/logEntry"
+				use:enhance={offlineLogSubmit(entry, () => resolved, userId, onEntrySaved, onQueueChanged)}
+			>
 				<input type="hidden" name="clientUuid" value={entry.clientUuid} />
 				<input type="hidden" name="planned" value={entry.planned} />
 				<input type="hidden" name="commitmentMode" value={entry.commitmentMode} />
@@ -300,6 +317,17 @@
 					symbol={currency.symbol}
 					onSubmit={submitEntry}
 				/>
+
+				<!-- The offline outbox's queue (Spec §6, task A5) — same rule as
+				     the mobile shell's copy of this line: a count, never money,
+				     and absent entirely once nothing is waiting. -->
+				{#if queuedCount > 0}
+					<p class="queue-note" role="status">
+						{queuedCount === 1
+							? '1 entry waiting to send'
+							: `${queuedCount} entries waiting to send`}
+					</p>
+				{/if}
 
 				<p class="hint"><span><kbd>Esc</kbd> cancel</span></p>
 			</form>
@@ -517,6 +545,15 @@
 		border-top: 1px solid var(--hairline);
 		font-size: 0.75rem;
 		color: var(--ink-muted);
+	}
+
+	/* ── Offline outbox queue note (Spec §6, task A5) ────────────────────
+	   Same rule as `+page.svelte`'s copy: quiet, no border, absent entirely
+	   once the queue is empty. */
+	.queue-note {
+		margin: 0.625rem 0 0;
+		color: var(--ink-muted);
+		font-size: 0.8125rem;
 	}
 
 	kbd {

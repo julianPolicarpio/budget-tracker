@@ -25,11 +25,16 @@ const inContainer = existsSync('/.dockerenv') || process.env.SPLIT_IN_CONTAINER 
 
 export const load: PageServerLoad = ({ locals }) => {
 	const ctx = todayContext(locals.userId);
-	if (!ctx) return { view: null, hasPeriod: false, inContainer };
+	if (!ctx) return { view: null, hasPeriod: false, inContainer, userId: locals.userId };
 	return {
 		view: ctx.view,
 		hasPeriod: ctx.period !== null,
 		inContainer,
+		// The offline outbox (Spec §6, task A5) namespaces every queued row by
+		// this — never a balance or anything else about the account, just the
+		// id needed so a queued entry can never flush under a different
+		// signed-in session (see `src/lib/outbox.ts`'s module doc).
+		userId: locals.userId,
 		// The typed-entry router's context (Spec §5.6-§5.7, task A4a), fetched
 		// once so the resolution line runs entirely in the browser — no
 		// network round trip per keystroke. Refreshed automatically after
