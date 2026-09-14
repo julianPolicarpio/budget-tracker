@@ -1,8 +1,11 @@
 <script lang="ts">
+	import { CADENCE_LABEL, arrivalsPerYear, type IncomeCadence } from '$lib/income-cadence';
 	import ReviewNav from '$lib/components/ReviewNav.svelte';
 	import { enhance } from '$app/forms';
 	import { formatMoney } from '$lib/money';
 	import type { ActionData, PageData } from './$types';
+
+	let newCadence = $state('monthly');
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -213,6 +216,121 @@
 		</section>
 
 		<!-- 3.3 The flow, drawn once so the mental model sticks. -->
+		<!--
+			Income sources (invariant 7, migration 0014).
+
+			Placed before "The split", because the split is derived from these and
+			for four phases it could not be: the page said so itself, "Bills,
+			Emergency fund and Savings need the income split, which needs income
+			sources — a subsystem Spec §13's roadmap never assigns to a phase."
+
+			Bi-weekly and semi-monthly are separate options and always will be.
+			They are 26 arrivals a year and 24, roughly 8% apart, and a single
+			"twice a month" choice would quietly understate a bi-weekly income for
+			ever.
+		-->
+		<section class="block">
+			<p class="eyebrow">Income</p>
+
+			{#if data.incomeSources.length === 0}
+				<p class="muted">
+					Nothing here yet, which is why three of the moves below cannot be worked out. Add where
+					your money comes from and the split computes itself.
+				</p>
+			{:else}
+				<table class="grid">
+					<thead>
+						<tr>
+							<th scope="col">Source</th>
+							<th scope="col">Every</th>
+							<th scope="col" class="num">Each time</th>
+							<th scope="col" class="num">A year</th>
+							<th scope="col"></th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each data.incomeSources as src (src.id)}
+							<tr>
+								<th scope="row">{src.label}</th>
+								<td>{CADENCE_LABEL[src.cadence as IncomeCadence] ?? src.cadence}</td>
+								<td class="num">{money(src.amountMinor)}</td>
+								<td class="num">
+									{#if src.cadence === 'irregular'}
+										<span class="muted">{src.baselineMinor === null ? 'no baseline yet' : money(src.baselineMinor) + '/mo'}</span>
+									{:else}
+										{money(src.amountMinor * (arrivalsPerYear(src.cadence) ?? 0))}
+									{/if}
+								</td>
+								<td>
+									<form method="POST" action="?/archiveIncome" use:enhance>
+										<input type="hidden" name="id" value={src.id} />
+										<button class="link" type="submit">Remove</button>
+									</form>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+
+				{#if data.expectedThisPeriod !== null}
+					<p class="muted">
+						Expected this period: <strong>{money(data.expectedThisPeriod)}</strong> — the arrivals
+						that actually land between {data.period?.startsOn} and {data.period?.endsOn}, not a
+						monthly figure divided up.
+					</p>
+				{/if}
+			{/if}
+
+			<form method="POST" action="?/addIncome" use:enhance class="income-add">
+				<label>
+					Name
+					<input name="label" required placeholder="Main job" />
+				</label>
+				<label>
+					Each time
+					<span class="field-sym">{data.currency.symbol}</span>
+					<input name="amount" required inputmode="decimal" placeholder="2500" />
+				</label>
+				<label>
+					Every
+					<select name="cadence" bind:value={newCadence}>
+						<option value="monthly">Month, same date</option>
+						<option value="semimonthly">Twice a month, two fixed dates (24 a year)</option>
+						<option value="biweekly">2 weeks (26 a year)</option>
+						<option value="weekly">Week</option>
+						<option value="daily">Day</option>
+						<option value="irregular">No schedule</option>
+					</select>
+				</label>
+				{#if newCadence !== 'irregular'}
+					<label>
+						Last arrived
+						<input name="anchorOn" type="date" required />
+					</label>
+				{/if}
+				{#if newCadence === 'semimonthly'}
+					<label>
+						And on day
+						<input name="secondDay" type="number" min="1" max="31" value="30" required />
+					</label>
+				{/if}
+				<button class="primary" type="submit">Add</button>
+			</form>
+
+			{#if newCadence === 'biweekly'}
+				<p class="muted">
+					Every 14 days, so it drifts through the calendar and lands three times in some months.
+					That is different from twice a month, by about 8% a year.
+				</p>
+			{/if}
+			{#if newCadence === 'irregular'}
+				<p class="muted">
+					Budgets to nothing until there are three months of history, then to your lowest month —
+					never the average. You cannot spend a month you might not have again.
+				</p>
+			{/if}
+		</section>
+
 		<section class="block">
 			<p class="eyebrow">The split</p>
 			<pre class="flow" aria-label="Income splits into Bills, Spending, Big bills, Emergency fund and Savings">
@@ -249,9 +367,9 @@ INCOME ──┬──▶ BILLS            auto-debits only, never thought about
 					{/each}
 				</ul>
 				<p class="muted">
-					Only two of the five are known here. Bills, Emergency fund and Savings need the income split, which
-					needs income sources — a subsystem Spec §13's roadmap never assigns to a phase.
-				</p>
+					Add an income source above and the rest of the split computes itself: Bills and Big bills
+					come from what you actually owe, the emergency fund takes what is left, and Spending is
+					the remainder.</p>
 			{/if}
 		</section>
 

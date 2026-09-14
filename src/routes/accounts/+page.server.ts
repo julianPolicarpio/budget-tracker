@@ -2,6 +2,13 @@ import { fail, redirect, type Actions } from '@sveltejs/kit';
 import { loadSettings } from '$lib/server/today';
 import { localToday } from '$lib/server/clock';
 import { openPeriodOn } from '$lib/server/rollover';
+import {
+	CADENCES,
+	addIncomeSource,
+	archiveIncomeSource,
+	expectedIncome,
+	listIncomeSources
+} from '$lib/server/income';
 import { parseMoney } from '$lib/money';
 import {
 	IouRequired,
@@ -34,6 +41,10 @@ export const load: PageServerLoad = ({ locals }) => {
 		goals: listGoals(locals.userId),
 		ious: openIous(locals.userId, today),
 		checklist: period ? checklist(locals.userId, period, today) : [],
+		incomeSources: listIncomeSources(locals.userId),
+		expectedThisPeriod: period
+			? expectedIncome(locals.userId, period.startsOn, period.endsOn)
+			: null,
 		period,
 		currency: {
 			code: settings.currencyCode,
@@ -44,6 +55,60 @@ export const load: PageServerLoad = ({ locals }) => {
 };
 
 export const actions: Actions = {
+	/**
+	 * Add an income source (invariant 7).
+	 *
+	 * `cadence` is validated against the same six the schema allows, and the
+	 * two that are constantly conflated — biweekly and semimonthly — are
+	 * separate options with different consequences, never one "twice a month"
+	 * choice. See `income.ts` for why that is worth a whole column.
+	 */
+	addIncome: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
+		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
+
+		const form = await request.formData();
+		const label = String(form.get('label') ?? '').trim();
+		const cadence = String(form.get('cadence') ?? '');
+		const anchorOn = String(form.get('anchorOn') ?? '').trim() || null;
+		const secondDayRaw = String(form.get('secondDay') ?? '').trim();
+		const amountMinor = parseMoney(String(form.get('amount') ?? ''), settings.minorUnits);
+
+		if (!label) return fail(400, { error: 'Give it a name.' });
+		if (!CADENCES.includes(cadence)) return fail(400, { error: 'Unknown cadence.' });
+		if (amountMinor === null || amountMinor < 0) {
+			return fail(400, { error: 'Enter an amount like 2500.' });
+		}
+		if (cadence !== 'irregular' && !anchorOn) {
+			return fail(400, { error: 'A scheduled source needs a date it last arrived.' });
+		}
+		const secondDay = cadence === 'semimonthly' ? Number(secondDayRaw) : null;
+		if (cadence === 'semimonthly' && !(secondDay !== null && secondDay >= 1 && secondDay <= 31)) {
+			return fail(400, { error: 'Semi-monthly needs a second day of the month.' });
+		}
+
+		addIncomeSource(locals.userId, {
+			label,
+			amountMinor,
+			cadence,
+			anchorOn,
+			secondDay,
+			// Irregular income budgets to the LOWEST of three months, never a
+			// guess and never the mean, so it starts with no baseline and
+			// contributes nothing until one exists (Rule 1).
+			baselineMinor: null
+		});
+		return { savedIncome: true };
+	},
+
+	archiveIncome: async ({ request, locals }) => {
+		const form = await request.formData();
+		const id = Number(form.get('id'));
+		if (!Number.isInteger(id)) return fail(400, { error: 'Unknown source.' });
+		archiveIncomeSource(locals.userId, id);
+		return { archivedIncome: true };
+	},
+
 	assertBalance: async ({ request, locals }) => {
 		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });

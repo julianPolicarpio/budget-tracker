@@ -18,6 +18,7 @@ import { and, asc, eq, isNull } from 'drizzle-orm';
 import { forUser, schema } from './db';
 import { requiredAccrualPerPeriod } from './irregulars';
 import { commitmentsPerPeriod } from './subscriptions';
+import { expectedIncome, waterfall } from './income';
 import { daysBetween } from './clock';
 import type { Period } from './db/schema';
 
@@ -69,6 +70,42 @@ export function ensureAllocations(userId: number, period: Period, today: string)
 		.get();
 	const committed = commitmentsPerPeriod(userId, period.days, today);
 	if (bills && committed > 0) rows.push({ accountId: bills.id, amountMinor: committed });
+
+	/*
+	 * Emergency fund and Savings, which had no row at all until income sources
+	 * existed (migration 0014).
+	 *
+	 * The Accounts page said so out loud for four phases: "Only two of the five
+	 * are known here." Bills and Big bills come from real commitments, and
+	 * Spend is frozen on the period row — but the two savings buckets are
+	 * whatever is LEFT, and nothing could compute "left" without knowing what
+	 * was expected to arrive.
+	 *
+	 * Rule 1's waterfall, in order: Bills full, Big bills full, Emergency fund
+	 * minimum, remainder to Spending. Only the Emergency fund step is added
+	 * here, because Bills, Big bills and Spend already have their rows above —
+	 * recomputing them from the waterfall would fight invariant 6, which says
+	 * the period's frozen figure is the one that governs.
+	 *
+	 * A shortfall funds nothing rather than part-funding: putting a token
+	 * amount into the emergency fund while Big bills is short is how a known
+	 * cost becomes a raided emergency fund three months later.
+	 */
+	const expected = expectedIncome(userId, period.startsOn, period.endsOn);
+	if (expected > 0) {
+		const split = waterfall(expected, committed, accrual, Number.MAX_SAFE_INTEGER);
+		if (!split.short && split.bufferMinor > 0) {
+			const buffer = db
+				.select()
+				.from(schema.account)
+				.where(and(owns(schema.account), eq(schema.account.kind, 'buffer')))
+				.get();
+			// Whatever is left after the three funded buckets. Spend is already
+			// claimed above at its frozen figure, so this is the true remainder.
+			const left = expected - committed - accrual - period.spendAllocMinor;
+			if (buffer && left > 0) rows.push({ accountId: buffer.id, amountMinor: left });
+		}
+	}
 
 	for (const r of rows) {
 		db.insert(schema.allocation)

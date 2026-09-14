@@ -507,3 +507,31 @@ export type WaitItem = typeof waitItem.$inferSelect;
 export type ReviewStep = typeof reviewStep.$inferSelect;
 export type CategoryLeaf = typeof categoryLeaf.$inferSelect;
 export type LabelMap = typeof labelMap.$inferSelect;
+
+/**
+ * Where the money comes from (migration 0014).
+ *
+ * `anchorOn` and `secondDay` both exist because bi-weekly and semi-monthly are
+ * genuinely different shapes, not two words for "twice a month": one steps
+ * every 14 days and drifts, the other repeats on two fixed dates. Collapsing
+ * them costs 8% a year, silently. See `income.ts`.
+ */
+export const incomeSource = sqliteTable(
+	'income_source',
+	{
+		id: integer('id').primaryKey({ autoIncrement: true }),
+		label: text('label').notNull(),
+		amountMinor: integer('amount_minor').notNull(),
+		cadence: text('cadence').notNull(),
+		anchorOn: text('anchor_on'),
+		secondDay: integer('second_day'),
+		baselineMinor: integer('baseline_minor'),
+		note: text('note'),
+		createdAt: text('created_at').notNull(),
+		archivedAt: text('archived_at'),
+		userId: integer('user_id').notNull().default(1)
+	},
+	(t) => [index('idx_income_source_live').on(t.userId)]
+);
+
+export type IncomeSource = typeof incomeSource.$inferSelect;
