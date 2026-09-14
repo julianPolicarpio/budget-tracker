@@ -456,8 +456,14 @@ describe('the transfer checklist', () => {
 		m.allocations.ensureAllocations(1, period, TODAY);
 
 		const items = m.allocations.checklist(1, period, TODAY);
-		expect(items.map((i) => i.accountName).sort()).toEqual(['Irregulars', 'Spend']);
-		expect(items.find((i) => i.accountName === 'Spend')!.amountMinor).toBe(420_000);
+		// Keyed on accountId, not accountName. `name` is display data the user may
+		// edit and migration 0013 renamed the defaults; `kind` and `id` are what
+		// identify a bucket. A test that breaks when a label changes was testing
+		// the wrong thing.
+		const spendId = m.accounts.accountByKind(1, 'spend')!.id;
+		const irregularsId = m.accounts.accountByKind(1, 'irregulars')!.id;
+		expect(items.map((i) => i.accountId).sort()).toEqual([spendId, irregularsId].sort());
+		expect(items.find((i) => i.accountId === spendId)!.amountMinor).toBe(420_000);
 	});
 
 	it('moves the asserted balance when a move is ticked off', () => {
@@ -469,7 +475,7 @@ describe('the transfer checklist', () => {
 
 		const spendItem = m.allocations
 			.checklist(1, period, TODAY)
-			.find((i) => i.accountName === 'Spend')!;
+			.find((i) => i.accountId === m.accounts.accountByKind(1, 'spend')!.id)!;
 		const before = m.accounts.accountByKind(1, 'spend')!.balanceMinor;
 
 		m.allocations.executeAllocation(1, spendItem.id);

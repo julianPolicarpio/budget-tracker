@@ -107,7 +107,7 @@
 	}
 </script>
 
-<svelte:head><title>Irregulars · Split</title></svelte:head>
+<svelte:head><title>Big bills · Split</title></svelte:head>
 
 {#if !data.ready}
 	<main class="sheet">
@@ -118,7 +118,7 @@
 	<main class="sheet">
 		<header class="masthead">
 			<div>
-				<p class="eyebrow">Irregulars</p>
+				<p class="eyebrow">Big bills</p>
 				<h1>Lumpy costs, paid for before they land</h1>
 			</div>
 		</header>

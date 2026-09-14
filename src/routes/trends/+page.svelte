@@ -27,7 +27,7 @@
 		},
 		{
 			key: 'unplannedRatioBp',
-			label: 'Unplanned ratio',
+			label: 'Impulse spending',
 			target: 'falling, <25% by month 3',
 			format: (v: number) => `${Math.round(v / 100)}%`,
 			hint: 'The direct measure of exceptional-expense blindness losing its grip on you.'
@@ -41,7 +41,7 @@
 		},
 		{
 			key: 'coverageRatioBp',
-			label: 'Irregulars coverage',
+			label: 'Funded',
 			target: '≥1.0 and staying there',
 			format: (v: number) => `${(v / 10_000).toFixed(2)}×`,
 			hint: 'Below 1.0 is the leading indicator that Buffer is about to be raided.'

@@ -147,20 +147,20 @@ const STARTER_ACCOUNTS: Array<{
 	hasCard: 0 | 1;
 	sortOrder: number;
 }> = [
-	{ slug: 'inflow', name: 'Inflow', kind: 'inflow', isCommitted: 0, hasCard: 0, sortOrder: 1 },
+	{ slug: 'inflow', name: 'Income', kind: 'inflow', isCommitted: 0, hasCard: 0, sortOrder: 1 },
 	{ slug: 'bills', name: 'Bills', kind: 'bills', isCommitted: 0, hasCard: 0, sortOrder: 2 },
 	// The only account with a card, and it is debit — same note as migration 0003.
-	{ slug: 'spend', name: 'Spend', kind: 'spend', isCommitted: 0, hasCard: 1, sortOrder: 3 },
+	{ slug: 'spend', name: 'Spending', kind: 'spend', isCommitted: 0, hasCard: 1, sortOrder: 3 },
 	{
 		slug: 'irregulars',
-		name: 'Irregulars',
+		name: 'Big bills',
 		kind: 'irregulars',
 		isCommitted: 0,
 		hasCard: 0,
 		sortOrder: 4
 	},
-	{ slug: 'buffer', name: 'Buffer', kind: 'buffer', isCommitted: 1, hasCard: 0, sortOrder: 5 },
-	{ slug: 'grow', name: 'Grow', kind: 'grow', isCommitted: 1, hasCard: 0, sortOrder: 6 }
+	{ slug: 'buffer', name: 'Emergency fund', kind: 'buffer', isCommitted: 1, hasCard: 0, sortOrder: 5 },
+	{ slug: 'grow', name: 'Savings', kind: 'grow', isCommitted: 1, hasCard: 0, sortOrder: 6 }
 ];
 
 /** Exactly one settings row and the six starter accounts, for a brand new user. */

@@ -20,12 +20,12 @@ import { addDays } from './clock';
 import type { Review, Settings } from './db/schema';
 
 export const REVIEW_STEPS = [
-	{ key: 'balances', title: 'Log the four balances' },
-	{ key: 'actuals', title: "This week's actuals" },
-	{ key: 'top_three', title: 'Top three transactions' },
-	{ key: 'week_ahead', title: 'Week ahead' },
-	{ key: 'adjust', title: 'Adjust the number' },
-	{ key: 'send', title: 'Send it' }
+	{ key: 'balances', title: 'Balances' },
+	{ key: 'actuals', title: 'This week' },
+	{ key: 'top_three', title: 'Top three' },
+	{ key: 'week_ahead', title: 'Coming up' },
+	{ key: 'adjust', title: 'Next week' },
+	{ key: 'send', title: 'Finish' }
 ] as const;
 
 export type StepKey = (typeof REVIEW_STEPS)[number]['key'];

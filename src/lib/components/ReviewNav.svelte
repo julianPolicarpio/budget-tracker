@@ -11,13 +11,13 @@
 	import { page } from '$app/state';
 
 	const LINKS = [
-		{ href: '/review', label: 'Review' },
-		{ href: '/accounts', label: 'Money map' },
-		{ href: '/irregulars', label: 'Irregulars' },
-		{ href: '/subscriptions', label: 'Bills' },
+		{ href: '/review', label: 'Weekly review' },
+		{ href: '/accounts', label: 'Accounts' },
+		{ href: '/irregulars', label: 'Big bills' },
+		{ href: '/subscriptions', label: 'Subscriptions' },
 		{ href: '/trips', label: 'Trips' },
 		{ href: '/debt', label: 'Debt' },
-		{ href: '/rules', label: 'Rules' },
+		{ href: '/rules', label: 'Wishlist' },
 		{ href: '/trends', label: 'Trends' }
 	];
 

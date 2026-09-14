@@ -80,7 +80,7 @@
 	<main class="sheet">
 		<header class="masthead">
 			<div>
-				<p class="eyebrow">Weekly money date</p>
+				<p class="eyebrow">Weekly review</p>
 				<h1>
 					{data.week.label}
 					<span class="range">
@@ -125,7 +125,7 @@
 
 				<form method="POST" action="?/balances" use:enhance>
 					<div class="fields">
-						{#each [{ name: 'spend', label: 'Spend', value: data.review.spendBalanceMinor, ghost: data.prior?.spendBalanceMinor }, { name: 'irregulars', label: 'Irregulars', value: data.review.irregularsMinor, ghost: data.prior?.irregularsMinor }, { name: 'buffer', label: 'Buffer', value: data.review.bufferMinor, ghost: data.prior?.bufferMinor }, { name: 'debt', label: 'Total debt', value: data.review.debtTotalMinor, ghost: data.prior?.debtTotalMinor }] as f (f.name)}
+						{#each [{ name: 'spend', label: 'Spending', value: data.review.spendBalanceMinor, ghost: data.prior?.spendBalanceMinor }, { name: 'irregulars', label: 'Big bills', value: data.review.irregularsMinor, ghost: data.prior?.irregularsMinor }, { name: 'buffer', label: 'Emergency fund', value: data.review.bufferMinor, ghost: data.prior?.bufferMinor }, { name: 'debt', label: 'Total debt', value: data.review.debtTotalMinor, ghost: data.prior?.debtTotalMinor }] as f (f.name)}
 							<label class="field">
 								<span class="field-label">{f.label}</span>
 								<span class="field-input">
@@ -188,7 +188,7 @@
 					</table>
 
 					<div class="card meter-card">
-						<p class="eyebrow">Unplanned ratio</p>
+						<p class="eyebrow">Impulse spending</p>
 						<p class="meter-value">
 							{data.actuals.unplannedRatioBp === null
 								? '—'
@@ -200,7 +200,7 @@
 						<div
 							class="meter"
 							role="img"
-							aria-label="Unplanned ratio {Math.round(
+							aria-label="Impulse spending {Math.round(
 								(data.actuals.unplannedRatioBp ?? 0) / 100
 							)} percent"
 						>
@@ -441,7 +441,7 @@
 						<tbody>
 							<tr><th scope="row">Spent</th><td>{money(data.review.totalSpentMinor)}</td></tr>
 							<tr>
-								<th scope="row">Unplanned ratio</th>
+								<th scope="row">Impulse spending</th>
 								<td>
 									{data.review.unplannedRatioBp === null
 										? '—'
@@ -467,7 +467,7 @@
 							</tr>
 							<tr><th scope="row">Streak</th><td>{data.review.streakAtClose ?? 0} days</td></tr>
 							<tr>
-								<th scope="row">Irregulars coverage</th>
+								<th scope="row">Funded</th>
 								<td><span class="pending">Phase 3 — needs the irregulars engine</span></td>
 							</tr>
 							<tr>

@@ -50,7 +50,7 @@
 	let showGoal = $state(false);
 </script>
 
-<svelte:head><title>Money map · Split</title></svelte:head>
+<svelte:head><title>Accounts · Split</title></svelte:head>
 
 {#if !data.ready}
 	<main class="sheet">
@@ -61,7 +61,7 @@
 	<main class="sheet">
 		<header class="masthead">
 			<div>
-				<p class="eyebrow">Money map</p>
+				<p class="eyebrow">Accounts</p>
 				<h1>Where the money is, and what it is waiting on</h1>
 			</div>
 		</header>
@@ -72,11 +72,18 @@
 			<p class="error" role="alert">{form.error}</p>
 		{/if}
 
-		<!-- 3.1 Phase banner. A meter, not a pie, not a donut. -->
+		<!--
+			The stage banner. A meter, not a pie, not a donut.
+
+			The stage NUMBER is deliberately not shown (§5.12). It gates features
+			internally and means nothing to the person reading it; the name —
+			"Six weeks", "Kill expensive debt" — already says what you are working
+			on, which is the only part that was ever useful.
+		-->
 		<section class="card phase">
 			<div class="phase-head">
 				<div>
-					<p class="eyebrow">Phase {data.phase.current.n} — {data.phase.current.name}</p>
+					<p class="eyebrow">{data.phase.current.name}</p>
 					<p class="phase-exit">{data.phase.current.exit}</p>
 				</div>
 				<span class="verdict verdict-{data.phase.verdict.state}">
@@ -108,9 +115,7 @@
 				<div class="proposal">
 					<p>
 						<strong
-							>Move to Phase {data.phase.proposal.toPhase} — {data.phases[
-								data.phase.proposal.toPhase
-							].name}?</strong
+							>Ready for {data.phases[data.phase.proposal.toPhase].name}?</strong
 						>
 					</p>
 					<p class="muted">{data.phase.proposal.rationale}</p>

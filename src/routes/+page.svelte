@@ -68,6 +68,23 @@
 	 */
 	let queuedCount = $state(0);
 
+	/*
+	 * The door's destinations. Named for what a person would call them, with a
+	 * line saying what each holds — "Irregulars" and "Rules" told the owner
+	 * nothing, and a bare list of better names would only have been less wrong.
+	 */
+	let doorOpen = $state(false);
+	const DOOR = [
+		{ href: '/review', label: 'Weekly review', holds: '15 minutes, once a week' },
+		{ href: '/irregulars', label: 'Big bills', holds: 'Tuition, insurance, the annual ones' },
+		{ href: '/subscriptions', label: 'Subscriptions', holds: 'What renews, and when to kill it' },
+		{ href: '/accounts', label: 'Accounts', holds: 'Which account holds what' },
+		{ href: '/rules', label: 'Wishlist', holds: 'Wants parked for 72 hours' },
+		{ href: '/trips', label: 'Trips', holds: 'Spending abroad' },
+		{ href: '/debt', label: 'Debt', holds: "What's left to pay off" },
+		{ href: '/trends', label: 'Trends', holds: 'Where it went over time' }
+	];
+
 	async function refreshQueuedCount() {
 		if (data.userId == null) return;
 		queuedCount = await outbox.count(data.userId);
@@ -743,6 +760,50 @@
 			{/if}
 		{/if}
 
+		<!--
+			The door (Spec §9).
+
+			Every dense screen in this app existed and the owner never found one:
+			`ReviewNav` is deliberately absent from Today, so the only way in was
+			typing a URL. When finally shown the destinations he could not tell
+			what "Irregulars", "Rules" or "Money map" were — which is a naming
+			failure, not a user failure, and §5.12 fixed the words.
+
+			This is a disclosure, not a nav bar. `ReviewNav`'s own comment is right
+			that a permanent nav on Today is an invitation to go looking for
+			balances, and the whole withholding layer exists to prevent that. So it
+			sits below the log form, collapsed, one quiet line — and each
+			destination carries a short line saying what it holds, because a name
+			alone was what failed the first time.
+
+			`todayView()` gains no field for this.
+		-->
+		<div class="door">
+			<button
+				type="button"
+				class="door-toggle"
+				aria-expanded={doorOpen}
+				aria-controls="door-list"
+				onclick={() => (doorOpen = !doorOpen)}
+			>
+				<span>Review, bills, trends, accounts</span>
+				<span class="door-chev" aria-hidden="true">{doorOpen ? '↓' : '→'}</span>
+			</button>
+
+			{#if doorOpen}
+				<ul id="door-list" class="door-list">
+					{#each DOOR as d (d.href)}
+						<li>
+							<a href={d.href}>
+								<b>{d.label}</b>
+								<i>{d.holds}</i>
+							</a>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</div>
+
 		<!-- Desktop only: the idle screen is the hero, so the way in is a hint. -->
 		<p class="kbd-hint">
 			<kbd>⌘K</kbd> to log · start typing
@@ -1386,6 +1447,74 @@
 		margin: 0;
 		color: var(--ink);
 		font-size: 0.875rem;
+	}
+
+	/* ── The door (Spec §9) ──────────────────────────────────────────────
+	   Quiet by construction. It must never read as a nav bar: one line, ink-muted
+	   until hovered, no fill, no border until it opens. */
+
+	.door {
+		margin-top: 1.5rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--hairline);
+	}
+
+	.door-toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		width: 100%;
+		min-height: var(--touch);
+		padding: 0;
+		background: none;
+		border: 0;
+		color: var(--ink-muted);
+		font-family: inherit;
+		font-size: 0.8125rem;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.door-toggle:hover {
+		color: var(--ink);
+	}
+
+	.door-chev {
+		margin-left: auto;
+	}
+
+	.door-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+
+	.door-list a {
+		display: flex;
+		align-items: baseline;
+		gap: 0.75rem;
+		padding: 0.5rem 0;
+		border-bottom: 1px solid var(--hairline);
+		text-decoration: none;
+	}
+
+	.door-list li:last-child a {
+		border-bottom: 0;
+	}
+
+	.door-list b {
+		font-weight: 500;
+		font-size: 0.8125rem;
+		color: var(--ink);
+		white-space: nowrap;
+	}
+
+	.door-list i {
+		margin-left: auto;
+		font-style: normal;
+		font-size: 0.6875rem;
+		color: var(--ink-muted);
+		text-align: right;
 	}
 
 	/* ── Offline outbox queue note (Spec §6, task A5) ────────────────────
