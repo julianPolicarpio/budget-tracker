@@ -53,6 +53,78 @@ export const DEFAULT_PADDING_PCT: Record<Cadence, number> = {
 	every_n_years: 25
 };
 
+/** Every live (non-archived) irregular, oldest due date first — mirrors
+ * `listSubscriptions()`'s shape for the entry router (Spec §5.6) to read
+ * against. */
+export function listLiveIrregulars(userId: number): Irregular[] {
+	const { db, owns } = forUser(userId);
+	return db
+		.select()
+		.from(schema.irregular)
+		.where(and(owns(schema.irregular), isNull(schema.irregular.archivedAt)))
+		.orderBy(asc(schema.irregular.nextDueOn))
+		.all();
+}
+
+export interface NewIrregular {
+	label: string;
+	amountMinor: number;
+	cadence: Cadence;
+	cadenceN?: number | null;
+	nextDueOn: string;
+	category?: string | null;
+	paddingPct: number;
+	isEstimate?: boolean;
+}
+
+/** Declare a new irregular. Callers that need instances to exist immediately
+ * (the entry router's "varies" commitment, the /irregulars page's own upsert
+ * action) call `materialise()` right after. */
+export function createIrregular(userId: number, input: NewIrregular, now: Date = new Date()): number {
+	const { db } = forUser(userId);
+	const row = db
+		.insert(schema.irregular)
+		.values({
+			label: input.label,
+			amountMinor: input.amountMinor,
+			isEstimate: input.isEstimate ? 1 : 0,
+			cadence: input.cadence,
+			cadenceN: input.cadenceN ?? null,
+			nextDueOn: input.nextDueOn,
+			category: input.category ?? null,
+			paddingPct: input.paddingPct,
+			createdAt: now.toISOString(),
+			archivedAt: null,
+			userId
+		})
+		.returning({ id: schema.irregular.id })
+		.get();
+	return row.id;
+}
+
+/** The earliest not-yet-settled instance for one specific irregular — what
+ * `recordVaryingSettlement()` settles against. */
+export function currentInstanceFor(userId: number, irregularId: number): IrregularInstance | null {
+	const { db, owns } = forUser(userId);
+	return (
+		db
+			.select()
+			.from(schema.irregularInstance)
+			.where(
+				and(
+					owns(schema.irregularInstance),
+					eq(schema.irregularInstance.irregularId, irregularId),
+					or(
+						eq(schema.irregularInstance.status, 'due'),
+						eq(schema.irregularInstance.status, 'projected')
+					)
+				)
+			)
+			.orderBy(asc(schema.irregularInstance.dueOn))
+			.get() ?? null
+	);
+}
+
 /**
  * An irregular's cadence acquires a kind, same as a subscription's (Spec
  * §5.1): `one_off` has no step at all, weekly/fortnightly step in days, and

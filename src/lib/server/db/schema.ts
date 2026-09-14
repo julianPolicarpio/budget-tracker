@@ -101,7 +101,13 @@ export const txn = sqliteTable(
 		tripId: integer('trip_id'),
 		amountLocalMinor: integer('amount_local_minor'),
 		fxRateUsed: real('fx_rate_used'),
-		userId: integer('user_id').notNull().default(1)
+		userId: integer('user_id').notNull().default(1),
+		// Migration 0011 (Spec §5.2–§5.9): the typed-entry router.
+		label: text('label'),
+		source: text('source', { enum: ['cash', 'ewallet', 'card', 'bank', 'unknown'] })
+			.notNull()
+			.default('unknown'),
+		leafId: integer('leaf_id')
 	},
 	(t) => [
 		index('idx_txn_date').on(t.spentOn),
@@ -430,6 +436,68 @@ export const session = sqliteTable(
 	(t) => [index('idx_session_user').on(t.userId)]
 );
 
+/**
+ * A user-grown leaf under exactly one of the eight fixed roots (migration
+ * 0011, Spec §5.5). Roots never change and carry no budget, target or limit;
+ * neither does a leaf — invariant 4's rule is absolute at both levels. No
+ * `.default(1)` on `userId`: like `session` (migration 0009), this is a
+ * brand-new table with no pre-existing rows to backfill.
+ */
+export const categoryLeaf = sqliteTable(
+	'category_leaf',
+	{
+		id: integer('id').primaryKey(),
+		userId: integer('user_id').notNull(),
+		root: text('root', {
+			enum: [
+				'food_in',
+				'food_out',
+				'transport',
+				'study_work',
+				'health',
+				'social',
+				'stuff',
+				'other'
+			]
+		}).notNull(),
+		name: text('name').notNull(),
+		createdAt: text('created_at').notNull()
+	},
+	(t) => [
+		uniqueIndex('idx_category_leaf_unique').on(t.userId, t.root, t.name),
+		index('idx_category_leaf_user').on(t.userId, t.root)
+	]
+);
+
+/**
+ * `typed -> (english, root, leaf)`, per user, written when the user answers a
+ * question (migration 0011, Spec §5.7). One user teaching "kape" does not
+ * teach it for everyone — the seed dictionary is shared, this table is not.
+ */
+export const labelMap = sqliteTable(
+	'label_map',
+	{
+		id: integer('id').primaryKey(),
+		userId: integer('user_id').notNull(),
+		typed: text('typed').notNull(),
+		english: text('english').notNull(),
+		root: text('root', {
+			enum: [
+				'food_in',
+				'food_out',
+				'transport',
+				'study_work',
+				'health',
+				'social',
+				'stuff',
+				'other'
+			]
+		}).notNull(),
+		leafId: integer('leaf_id')
+	},
+	(t) => [uniqueIndex('idx_label_map_unique').on(t.userId, t.typed), index('idx_label_map_user').on(t.userId)]
+);
+
 export type AppUser = typeof appUser.$inferSelect;
 export type Settings = typeof settings.$inferSelect;
 export type Period = typeof period.$inferSelect;
@@ -448,3 +516,5 @@ export type Debt = typeof debt.$inferSelect;
 export type Rule = typeof rule.$inferSelect;
 export type WaitItem = typeof waitItem.$inferSelect;
 export type ReviewStep = typeof reviewStep.$inferSelect;
+export type CategoryLeaf = typeof categoryLeaf.$inferSelect;
+export type LabelMap = typeof labelMap.$inferSelect;

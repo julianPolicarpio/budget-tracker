@@ -33,3 +33,19 @@ export function isCategory(value: unknown): value is CategoryKey {
 export function categoryLabel(key: CategoryKey): string {
 	return CATEGORIES.find((c) => c.key === key)!.label;
 }
+
+/**
+ * The eight roots get descriptions (Spec §5.8). The owner could not place
+ * "laundry" among the bare labels — that is a labelling failure, not a user
+ * failure, and it will be worse for strangers who have never seen the app.
+ */
+export const CATEGORY_HELP: Record<CategoryKey, string> = {
+	food_in: 'Food you cook or eat at home',
+	food_out: 'Restaurants, takeout, coffee, snacks',
+	transport: 'Jeep, Grab, fuel, fare, tricycle',
+	study_work: 'Tools, books, courses, work things',
+	health: 'Medicine, doctor, dentist, gym',
+	social: 'Rounds, gifts, going out with people',
+	stuff: 'Household and personal things',
+	other: "Doesn't fit any of the others"
+};
