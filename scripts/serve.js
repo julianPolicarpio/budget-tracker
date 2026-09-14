@@ -16,36 +16,30 @@ import { applyMigrations } from './apply-migrations.js';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const dbPath = process.env.DATABASE_URL ?? join(root, 'data', 'split.db');
 
-// ─── Invariant 10: never bind to a public interface ───────────────────────
+// ─── The bind address, and what replaced it ───────────────────────────────
 //
-// Network isolation IS the auth boundary for this app. There is no login, no
-// accounts table, no tenancy column — anything that can reach the port can
-// read the whole financial history.
+// This used to refuse any public bind outright, because network isolation WAS
+// the auth boundary: there was no login, so whatever reached the port read the
+// whole financial history. That was invariant 10 and it was correct.
 //
-// Inside a container, HOST=0.0.0.0 is correct and safe: the container's
-// network namespace is private and the host's port publish decides what is
-// reachable (compose binds it to loopback). On a bare host the same value
-// means every interface, including whatever the router forwards. So the check
-// is conditional on where it is running, not on the string alone.
+// Going multi-user reversed it (spec §2.3). Authorisation is now application
+// code — Google sign-in, a session cookie, and the forUser() choke point that
+// makes an unscoped query impossible to write — so a public bind is exactly
+// what a deployed instance is supposed to have, and a guard that refuses it
+// would be a guard everyone routinely overrides. That trains people to
+// override guards, which is worse than not having one.
+//
+// The dangerous case still exists and is still refused, just not from here:
+// `resolveAuthMode()` in src/lib/server/auth.ts throws when GOOGLE_CLIENT_ID
+// is unset AND the bind is not loopback, because single-user mode attributes
+// every request to user 1. It runs at module load inside the handler imported
+// at the bottom of this file, so it fails before anything is served.
+//
+// Deliberately NOT duplicated here. Two copies of a security rule drift, and
+// the copy that drifts is the one running on the server. The migration loop in
+// this same directory taught that lesson once already.
 const host = process.env.HOST ?? '0.0.0.0';
 const inContainer = existsSync('/.dockerenv') || process.env.SPLIT_IN_CONTAINER === '1';
-const wildcard = host === '0.0.0.0' || host === '::' || host === '';
-
-if (wildcard && !inContainer && process.env.SPLIT_ALLOW_PUBLIC_BIND !== 'i-understand') {
-	console.error(
-		`\nRefusing to start.\n\n` +
-			`  HOST is "${host}", which on a bare host means every interface — including\n` +
-			`  anything your router forwards. Split has no login: whatever reaches the port\n` +
-			`  reads your whole financial history. Network isolation is the auth boundary\n` +
-			`  (Spec §1 non-goals, invariant 10).\n\n` +
-			`  Bind it to something private instead:\n\n` +
-			`    HOST=127.0.0.1 node scripts/serve.js          # this machine only\n` +
-			`    HOST=100.x.y.z node scripts/serve.js          # your Tailscale address\n\n` +
-			`  Or run it in the container, where 0.0.0.0 is correct and the port publish\n` +
-			`  in docker-compose.yml is what governs reach.\n`
-	);
-	process.exit(1);
-}
 
 // ─── Migrate ──────────────────────────────────────────────────────────────
 mkdirSync(dirname(dbPath), { recursive: true });
@@ -67,9 +61,13 @@ db.close();
 console.log(
 	`[split] db ${dbPath} · ${count === 0 ? 'schema current' : `applied ${count} migration(s)`}`
 );
+// The built server starts on import, and resolveAuthMode() runs during it —
+// so this is where a misconfigured deployment dies. The "listening" line comes
+// AFTER, because printing it first meant the log claimed a bind that never
+// happened, in exactly the situation where someone is reading the log
+// carefully to find out why nothing works.
+await import(join(root, 'build', 'index.js'));
+
 console.log(
 	`[split] listening on ${host}:${process.env.PORT ?? 3000}${inContainer ? ' (in container)' : ''}`
 );
-
-// The built server starts on import. Everything above must pass first.
-await import(join(root, 'build', 'index.js'));

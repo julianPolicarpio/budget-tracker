@@ -20,7 +20,8 @@
 		"lint": "prettier --check .",
 		"format": "prettier --write .",
 		"deploy": "npm run build && launchctl kickstart -k gui/$(id -u)/com.julian.split",
-		"logs": "tail -f data/serve.log"
+		"logs": "tail -f data/serve.log",
+		"backup:offsite": "node scripts/backup-offsite.js"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-node": "^5.5.4",
