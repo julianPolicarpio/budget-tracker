@@ -1,11 +1,23 @@
 /**
- * Income sources, and the only honest path to an allocation.
+ * Income sources, and the two honest paths that come from them.
  *
- * Invariant 7 names `projectArrivals()` as that path and this is it. Until now
- * it existed only as a warning in a comment about a function nobody had
- * written, which is why `spend_alloc_minor` had to be hand-typed into
+ * Invariant 7 names `projectArrivals()` as the only path to a claim about
+ * arrival DATES, and this file is where it lives. Until it existed,
+ * `projectArrivals()` was only a warning in a comment about a function nobody
+ * had written, which is why `spend_alloc_minor` had to be hand-typed into
  * `open-period.js --alloc` and three of the five transfer instructions on the
  * Accounts page were never computed.
+ *
+ * Spec §3.3 adds a second path, deliberately, after the first version of this
+ * file's allocation logic got it wrong: `sustainableIncomeMinor()` derives the
+ * daily band from each source's own cycle length rather than from arrivals
+ * landing inside a window, because a fortnightly salary against a seven-day
+ * window holds one whole arrival or none, and the old approach made the
+ * allocation depend on which week the user signed up. That is not a violation
+ * of invariant 7 — it is still `projectArrivals()`'s job to say what date an
+ * arrival lands on, and `sustainableIncomeMinor()` never makes that claim. It
+ * answers a different question: what can be spent per day, not when money
+ * shows up.
  *
  * ── The rule the whole file exists to protect ───────────────────────────
  *
@@ -21,12 +33,14 @@
  * conflated constantly, including by people who have been paid bi-weekly for a
  * decade". Treating 26 as 24 understates a year's income by roughly a month's
  * worth of one paycheque, and every allocation built on it is quietly too
- * small, for ever, with nothing to show that it is.
+ * small, for ever, with nothing to show that it is. `sustainableIncomeMinor()`
+ * keeps the same ~8% distinction alive through cycle length (14 days versus
+ * 15.22) instead of arrival count — see its own docstring below.
  *
- * So arrivals are PROJECTED as dates, never derived from a rate. A window's
- * expectation is the sum of the arrivals that actually land in it — which is
- * why bi-weekly correctly produces a three-paycheque month twice a year
- * instead of averaging it away.
+ * For anything that asks "what lands, and when," arrivals are PROJECTED as
+ * dates, never derived from a rate. A window's expectation is the sum of the
+ * arrivals that actually land in it — which is why bi-weekly correctly
+ * produces a three-paycheque month twice a year instead of averaging it away.
  */
 
 import { and, eq, isNull } from 'drizzle-orm';
@@ -271,8 +285,22 @@ export function sustainableIncomeMinor(userId: number, windowDays: number): numb
 			continue;
 		}
 
+		// `IncomeSource.cadence` is typed `string`, so the cast below is load-
+		// bearing: nothing at the type level stops a cadence outside
+		// `CADENCE_DAYS` from reaching this point. `income_source`'s CHECK
+		// constraint (migration 0014) makes it unreachable today — it lists
+		// exactly the six cadences `CADENCE_DAYS` plus 'irregular' cover — but
+		// 0010 previously widened two other tables' cadence CHECKs, so a future
+		// migration doing the same here is not far-fetched. A silent `if
+		// (cycleDays)` would drop the source instead: the band comes out too
+		// small, frozen for the life of the account by `openNext()`, with
+		// nothing logged. Throwing turns that into a loud failure at the
+		// boundary instead.
 		const cycleDays = CADENCE_DAYS[s.cadence as Exclude<IncomeCadence, 'irregular'>];
-		if (cycleDays) perDay += s.amountMinor / cycleDays;
+		if (cycleDays === undefined) {
+			throw new Error(`sustainableIncomeMinor: unknown income cadence "${s.cadence}"`);
+		}
+		perDay += s.amountMinor / cycleDays;
 	}
 
 	// One rounding, at the end — the same integer-first discipline as

@@ -6,8 +6,23 @@
  * period exists — "a first period is created by hand (Spec §13 Phase 1)".
  * Until now "by hand" meant a shell script hardcoded to `WHERE id = 1`.
  *
- * Invariant 7 governs the figure this produces: the allocation is derived from
- * arrivals that actually land, never typed and never scaled from a rate.
+ * Invariant 7 governs the figure this produces, and Spec §3.3 records a
+ * correction to how: the first version derived it from `expectedIncome()`
+ * over period #1's window, which sums only the arrivals landing inside that
+ * window. A fortnightly salary and a seven-day window do not divide — the
+ * window holds one whole arrival or none — so the allocation came out roughly
+ * double the sustainable figure or exactly zero depending on the signup week,
+ * and `openNext()` copies `spend_alloc_minor` forward verbatim, so it stood
+ * for the life of the account.
+ *
+ * Two questions, not one. "What lands in this window" is answered by
+ * `expectedIncome()` / `projectArrivals()`, and must not smooth — the
+ * Accounts page needs three transfers for a three-paycheque month, not an
+ * average that misstates where the money physically is. "What can be spent
+ * per day, sustainably" is answered by `sustainableIncomeMinor()`, which
+ * reads each source's own cycle length and must smooth, because a band that
+ * doubles in a three-paycheque week is not a budget. This file calls the
+ * second one.
  */
 import { forUser } from './db';
 import * as schema from './db/schema';

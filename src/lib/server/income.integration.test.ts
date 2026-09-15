@@ -1,11 +1,20 @@
 /**
- * Income sources and projectArrivals (invariant 7).
+ * Income sources: projectArrivals/expectedIncome, and sustainableIncomeMinor
+ * (Spec §3.3, invariant 7).
  *
- * The property under test is the one the invariant names: an allocation is
- * derived from arrivals that actually land, never from a rate. Spec §4.1 calls
- * bi-weekly versus semi-monthly "different by ~8% and conflated constantly,
- * including by people who have been paid bi-weekly for a decade" — so that
- * pair gets the most attention here.
+ * Two questions, two sets of properties under test. "What lands in this
+ * window" — `projectArrivals()` and `expectedIncome()` — must never smooth:
+ * an allocation claim about arrival DATES is derived from arrivals that
+ * actually land, never from a rate, because the Accounts page needs three
+ * transfers for a three-paycheque month, not an average that misstates where
+ * the money physically is. "What can be spent per day, sustainably" —
+ * `sustainableIncomeMinor()` — must smooth: it reads each source's own cycle
+ * length instead, because a band derived from arrivals-in-window depended on
+ * which week the user signed up and could come out roughly double or exactly
+ * zero (the bug Spec §3.3 records). Spec §4.1 calls bi-weekly versus
+ * semi-monthly "different by ~8% and conflated constantly, including by
+ * people who have been paid bi-weekly for a decade" — so that pair gets the
+ * most attention in both halves of this file.
  */
 
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -206,6 +215,17 @@ describe('sustainableIncomeMinor', () => {
 	});
 
 	it('returns zero when there are no sources at all', () => {
+		expect(m.income.sustainableIncomeMinor(USER, 7)).toBe(0);
+	});
+
+	it('an archived source stops contributing to the band', () => {
+		add('Salary', 200_000, 'biweekly', '2026-09-18');
+		const { id } = m.sqlite
+			.prepare(`SELECT id FROM income_source WHERE user_id = ? AND label = ?`)
+			.get(USER, 'Salary') as { id: number };
+		expect(m.income.sustainableIncomeMinor(USER, 7)).toBe(100_000);
+
+		m.income.archiveIncomeSource(USER, id);
 		expect(m.income.sustainableIncomeMinor(USER, 7)).toBe(0);
 	});
 });
