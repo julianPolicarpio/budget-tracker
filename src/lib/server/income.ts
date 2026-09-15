@@ -188,7 +188,10 @@ export function projectArrivals(userId: number, from: string, to: string): Arriv
 	return out.sort((a, b) => (a.on < b.on ? -1 : a.on > b.on ? 1 : 0));
 }
 
-/** Average days in a month. Used ONLY for irregular baselines — see below. */
+/**
+ * Average days in a month. Used for irregular baselines below, and by
+ * `sustainableIncomeMinor()` and `monthlyToWindowMinor()` further down.
+ */
 const AVG_DAYS_PER_MONTH = 365.25 / 12;
 
 /**
@@ -217,6 +220,76 @@ export function expectedIncome(userId: number, from: string, to: string): number
 		.reduce((sum, s) => sum + (s.baselineMinor! * days) / AVG_DAYS_PER_MONTH, 0);
 
 	return scheduled + Math.round(irregular);
+}
+
+/**
+ * Days per cycle, per cadence.
+ *
+ * Fortnightly is 14. Twice-monthly is 365.25/24 = 15.22. That ~8% gap is the
+ * distinction Spec §4.1 says is "conflated constantly, including by people who
+ * have been paid bi-weekly for a decade" — it survives here because each
+ * cadence carries its own real cycle length, not a shared monthly assumption.
+ */
+const CADENCE_DAYS: Record<Exclude<IncomeCadence, 'irregular'>, number> = {
+	daily: 1,
+	weekly: 7,
+	biweekly: 14,
+	semimonthly: AVG_DAYS_PER_MONTH / 2,
+	monthly: AVG_DAYS_PER_MONTH
+};
+
+/**
+ * What can be spent per day, sustainably, expressed over `windowDays`.
+ *
+ * NOT the same question as `expectedIncome()`, and the difference is the whole
+ * reason this exists. `expectedIncome()` answers "what money actually lands in
+ * this window" — the Accounts page needs that unsmoothed, because three
+ * paycheques in a month means three transfers and averaging would misstate
+ * where the money physically is.
+ *
+ * An ALLOCATION needs the opposite. A fortnightly salary against a seven-day
+ * window holds one whole arrival or none, never half, so deriving the band
+ * from arrivals-in-window made the daily figure depend on which week the user
+ * happened to sign up: roughly double if it contained a payday, exactly zero
+ * if it did not. `openNext()` copies `spend_alloc_minor` forward verbatim, so
+ * that first figure would have stood for the life of the account.
+ *
+ * So this reads each source's own cycle instead of the calendar. Invariant 7
+ * holds: `ARRIVALS_PER_YEAR` is still display-only and unused here, and
+ * `projectArrivals()` remains the only path to any claim about arrival DATES.
+ */
+export function sustainableIncomeMinor(userId: number, windowDays: number): number {
+	let perDay = 0;
+
+	for (const s of listIncomeSources(userId)) {
+		if (s.cadence === 'irregular') {
+			// Three months of history is the price of budgeting on an irregular
+			// source; until then it contributes nothing, exactly as it does in
+			// expectedIncome(). A guess here would be an allocation built on a
+			// figure nobody has observed.
+			if (s.baselineMinor !== null) perDay += s.baselineMinor / AVG_DAYS_PER_MONTH;
+			continue;
+		}
+
+		const cycleDays = CADENCE_DAYS[s.cadence as Exclude<IncomeCadence, 'irregular'>];
+		if (cycleDays) perDay += s.amountMinor / cycleDays;
+	}
+
+	// One rounding, at the end — the same integer-first discipline as
+	// dailyAllowance(). A per-source round would drift with the source count.
+	return Math.round(perDay * windowDays);
+}
+
+/**
+ * A monthly figure expressed over `windowDays`, by the same rule.
+ *
+ * Used for the rough fixed-bills total collected at setup. Income and bills
+ * convert identically on purpose: a short month then reserves proportionally
+ * less of both, and Spending — the remainder — scales with them rather than
+ * needing a special case for every (cadence × period kind) pair.
+ */
+export function monthlyToWindowMinor(monthlyMinor: number, windowDays: number): number {
+	return Math.round((monthlyMinor / AVG_DAYS_PER_MONTH) * windowDays);
 }
 
 export interface Waterfall {

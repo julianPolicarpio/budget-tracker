@@ -9,15 +9,15 @@
  * Invariant 7 governs the figure this produces: the allocation is derived from
  * arrivals that actually land, never typed and never scaled from a rate.
  */
-import { and, eq, isNull } from 'drizzle-orm';
 import { forUser } from './db';
 import * as schema from './db/schema';
-import { addDays, daysBetweenInclusive, localToday as localDateIn } from './clock';
+import { daysBetweenInclusive, localToday as localDateIn } from './clock';
 import { weekOf } from './week';
 import { dailyAllowance } from '$lib/allowance';
 import {
 	addIncomeSource,
-	expectedIncome,
+	sustainableIncomeMinor,
+	monthlyToWindowMinor,
 	waterfall,
 	type NewIncomeSource,
 	type Waterfall
@@ -71,17 +71,6 @@ export function firstPeriodWindow(
 	return { startsOn, endsOn, days: daysBetweenInclusive(startsOn, endsOn) };
 }
 
-/**
- * A monthly bills figure scaled to the window.
- *
- * This is the ONE conversion invariant 7 permits, and for the same reason
- * `expectedIncome()` permits it for an irregular baseline: the figure is
- * monthly BY DEFINITION — the user was asked for a month — so scaling it by
- * days is reading it, not deriving an income from a rate. Nothing here divides
- * an ARRIVAL by twelve, which is the bug the invariant names.
- */
-const AVG_DAYS_PER_MONTH = 365.25 / 12;
-
 export interface SetupInput {
 	timezone: string;
 	currencyCode: string;
@@ -116,9 +105,9 @@ export function needsSetup(userId: number): boolean {
 /**
  * The five answers, the derivation, and period #1 — one transaction.
  *
- * Order matters: the income source must exist before `expectedIncome()` can
- * see it, and the settings row must carry the new haircut before the allowance
- * is frozen against it.
+ * Order matters: the income source must exist before `sustainableIncomeMinor()`
+ * can see it, and the settings row must carry the new haircut before the
+ * allowance is frozen against it.
  */
 export function completeSetup(
 	userId: number,
@@ -153,12 +142,13 @@ export function completeSetup(
 		// there is still exactly one place that writes an income source.
 		addIncomeSource(userId, input.income, now);
 
-		const settings = tx.select().from(schema.settings).where(owns(schema.settings)).get()!;
+		const settings = tx.select().from(schema.settings).where(owns(schema.settings)).get();
+		if (!settings) throw new Error('This account has no settings row; it was never provisioned.');
 		const today = localDateIn(input.timezone, now);
 		const window = firstPeriodWindow(today, input.periodKind, input.weekStartsOn);
 
-		const expected = expectedIncome(userId, window.startsOn, window.endsOn);
-		const billsForWindow = Math.round((input.monthlyBillsMinor * window.days) / AVG_DAYS_PER_MONTH);
+		const expected = sustainableIncomeMinor(userId, window.days);
+		const billsForWindow = monthlyToWindowMinor(input.monthlyBillsMinor, window.days);
 
 		// Big bills and the emergency-fund minimum are zero for a brand-new
 		// account: nothing has been entered yet. The door badge asks for them.

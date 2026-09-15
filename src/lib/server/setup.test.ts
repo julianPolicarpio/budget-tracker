@@ -23,6 +23,12 @@ beforeAll(async () => {
 	const dbMod = await import('./db');
 	applyMigrations(dbMod.sqlite, resolve('migrations'));
 	m = { sqlite: dbMod.sqlite, setup: await import('./setup') };
+});
+
+beforeEach(() => {
+	m.sqlite.prepare(`DELETE FROM txn WHERE user_id = ?`).run(USER);
+	m.sqlite.prepare(`DELETE FROM period WHERE user_id = ?`).run(USER);
+	m.sqlite.prepare(`DELETE FROM income_source WHERE user_id = ?`).run(USER);
 
 	// applyMigrations alone leaves `settings` empty — it is populated at
 	// runtime by provisionUser(), not by a migration. completeSetup() only
@@ -32,20 +38,19 @@ beforeAll(async () => {
 	// other *.integration.test.ts files that hit this same gap — copied here
 	// rather than invented, since income.integration.test.ts (the harness this
 	// file's DB setup was modeled on) is the one suite that never needed it.
+	//
+	// Re-seeded every test, not just once in beforeAll: `completeSetup()`
+	// mutates this row (the "writes the answers" test leaves EUR/Lisbon behind
+	// otherwise), and every test should start from the same state.
+	m.sqlite.prepare(`DELETE FROM settings WHERE user_id = ?`).run(USER);
 	m.sqlite
 		.prepare(
 			`INSERT INTO settings (id, currency_code, currency_symbol, minor_units, rounding_step,
 			                       period_kind, week_starts_on, haircut_pct, band_pct, phase,
-			                       timezone, created_at)
-			 VALUES (1,'PHP','₱',2,1000,'weekly',0,15,10,0,'Asia/Manila','2026-08-01T00:00:00Z')`
+			                       timezone, created_at, user_id)
+			 VALUES (1,'PHP','₱',2,1000,'weekly',0,15,10,0,'Asia/Manila','2026-08-01T00:00:00Z',?)`
 		)
-		.run();
-});
-
-beforeEach(() => {
-	m.sqlite.prepare(`DELETE FROM txn WHERE user_id = ?`).run(USER);
-	m.sqlite.prepare(`DELETE FROM period WHERE user_id = ?`).run(USER);
-	m.sqlite.prepare(`DELETE FROM income_source WHERE user_id = ?`).run(USER);
+		.run(USER);
 });
 
 describe('firstPeriodWindow', () => {
@@ -88,12 +93,11 @@ const BASE: Omit<import('./setup').SetupInput, 'income' | 'monthlyBillsMinor'> =
 };
 
 describe('completeSetup', () => {
-	it('derives the allocation from arrivals and opens exactly one period', () => {
+	it('derives the allocation from the pay cycle and opens exactly one period', () => {
 		const r = m.setup.completeSetup(
 			USER,
 			{
 				...BASE,
-				// €2,000 every two weeks, anchored on a Friday inside the window.
 				income: {
 					label: 'Salary',
 					amountMinor: 200_000,
@@ -102,18 +106,18 @@ describe('completeSetup', () => {
 					secondDay: null,
 					baselineMinor: null
 				},
-				monthlyBillsMinor: 60_000 // €600 a month
+				monthlyBillsMinor: 60_000
 			},
 			new Date('2026-09-16T12:00:00Z')
 		);
 
-		// One arrival lands in the Mon 14th – Sun 20th window.
-		expect(r.waterfall.expectedMinor).toBe(200_000);
-		// €600/month scaled to 7 days: 60000 * 7 / (365.25/12) = 13798.77 → 13799.
+		// 200000 / 14 * 7 — the cycle, not the arrivals inside the window.
+		expect(r.waterfall.expectedMinor).toBe(100_000);
+		// 60000 / 30.4375 * 7 = 13798.8 → 13799.
 		expect(r.waterfall.billsMinor).toBe(13_799);
-		expect(r.spendAllocMinor).toBe(186_201);
-		// 186201 * 85 / (100 * 7), one rounding at the end.
-		expect(r.dailyAllowanceMinor).toBe(22_610);
+		expect(r.spendAllocMinor).toBe(86_201);
+		// 86201 * 85 / (100 * 7), one rounding at the end.
+		expect(r.dailyAllowanceMinor).toBe(10_467);
 		expect(r.window).toEqual({ startsOn: '2026-09-14', endsOn: '2026-09-20', days: 7 });
 
 		const periods = m.sqlite.prepare(`SELECT * FROM period WHERE user_id = ?`).all(USER) as any[];
@@ -143,6 +147,37 @@ describe('completeSetup', () => {
 		expect(s.timezone).toBe('Europe/Lisbon');
 		expect(s.currency_code).toBe('EUR');
 		expect(s.week_starts_on).toBe(1);
+	});
+
+	it('gives the same allocation whichever week of the pay cycle you sign up in', () => {
+		// THE REGRESSION TEST. The previous derivation summed arrivals inside the
+		// window, so this week — which contains no payday, the next being
+		// 2026-10-02 — produced an allocation of exactly zero, frozen forever.
+		const input = {
+			...BASE,
+			income: {
+				label: 'Salary',
+				amountMinor: 200_000,
+				cadence: 'biweekly' as const,
+				anchorOn: '2026-09-18',
+				secondDay: null,
+				baselineMinor: null
+			},
+			monthlyBillsMinor: 60_000
+		};
+
+		const paydayWeek = m.setup.completeSetup(USER, input, new Date('2026-09-16T12:00:00Z'));
+
+		m.sqlite.prepare(`DELETE FROM period WHERE user_id = ?`).run(USER);
+		m.sqlite.prepare(`DELETE FROM income_source WHERE user_id = ?`).run(USER);
+
+		const quietWeek = m.setup.completeSetup(USER, input, new Date('2026-09-23T12:00:00Z'));
+
+		expect(quietWeek.window.startsOn).toBe('2026-09-21');
+		expect(quietWeek.waterfall.expectedMinor).toBe(paydayWeek.waterfall.expectedMinor);
+		expect(quietWeek.spendAllocMinor).toBe(paydayWeek.spendAllocMinor);
+		expect(quietWeek.dailyAllowanceMinor).toBe(paydayWeek.dailyAllowanceMinor);
+		expect(quietWeek.spendAllocMinor).toBeGreaterThan(0);
 	});
 
 	it('funds Spending at zero rather than negative when bills exceed income', () => {

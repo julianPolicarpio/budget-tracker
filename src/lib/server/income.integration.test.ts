@@ -166,3 +166,57 @@ describe('multiple sources coexist', () => {
 		);
 	});
 });
+
+describe('sustainableIncomeMinor', () => {
+	it('reads the cycle, not the window — the same figure whichever week you ask about', () => {
+		// ₱2,000.00 every second Friday. Sustainable weekly figure is ₱1,000.00,
+		// regardless of whether the week being asked about contains a payday.
+		add('Salary', 200_000, 'biweekly', '2026-09-18');
+		expect(m.income.sustainableIncomeMinor(USER, 7)).toBe(100_000);
+	});
+
+	it('keeps fortnightly and twice-monthly ~8% apart', () => {
+		add('Fortnightly', 200_000, 'biweekly', '2026-09-18');
+		const fortnightly = m.income.sustainableIncomeMinor(USER, 7);
+
+		m.sqlite.prepare(`DELETE FROM income_source WHERE user_id = ?`).run(USER);
+		add('Twice monthly', 200_000, 'semimonthly', '2026-09-15', 30);
+		const semimonthly = m.income.sustainableIncomeMinor(USER, 7);
+
+		// 14 days per cycle against 365.25/24 = 15.22. Fortnightly is the larger.
+		expect(fortnightly).toBe(100_000);
+		expect(semimonthly).toBe(91_992);
+		expect(fortnightly / semimonthly).toBeCloseTo(1.087, 3);
+	});
+
+	it('sums every live source', () => {
+		add('Salary', 140_000, 'weekly', '2026-09-18');
+		add('Side work', 200_000, 'biweekly', '2026-09-18');
+		expect(m.income.sustainableIncomeMinor(USER, 7)).toBe(240_000);
+	});
+
+	it('counts an irregular source only once it has a baseline', () => {
+		add('Freelance', 0, 'irregular', null, null, null);
+		expect(m.income.sustainableIncomeMinor(USER, 7)).toBe(0);
+
+		m.sqlite.prepare(`DELETE FROM income_source WHERE user_id = ?`).run(USER);
+		add('Freelance', 0, 'irregular', null, null, 300_000);
+		// 300000 / 30.4375 * 7 = 68,993.8
+		expect(m.income.sustainableIncomeMinor(USER, 7)).toBe(68_994);
+	});
+
+	it('returns zero when there are no sources at all', () => {
+		expect(m.income.sustainableIncomeMinor(USER, 7)).toBe(0);
+	});
+});
+
+describe('monthlyToWindowMinor', () => {
+	it('converts a monthly figure by the same rule income uses', () => {
+		// 60000 / 30.4375 * 7 = 13,798.8
+		expect(m.income.monthlyToWindowMinor(60_000, 7)).toBe(13_799);
+	});
+
+	it('is proportional to the window', () => {
+		expect(m.income.monthlyToWindowMinor(60_000, 14)).toBe(27_598);
+	});
+});
