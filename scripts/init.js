@@ -87,7 +87,7 @@ console.log(
 			? formatMoney(stored.m, { minorUnits: cfg.minor_units, symbol: cfg.currency_symbol })
 			: 'not set — buffer weeks stays blank until --take-home')
 );
-console.log(`\nNext: node scripts/open-period.js --alloc <amount> --days 7`);
+console.log(`\nNext: sign in and answer the five questions at /setup`);
 db.close();
 
 function parseArgs(argv) {

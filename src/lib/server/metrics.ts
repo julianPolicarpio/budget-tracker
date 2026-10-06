@@ -80,7 +80,7 @@ export function weekActuals(userId: number, range: Range): WeekActuals {
 		.select({
 			category: schema.txn.category,
 			planned: schema.txn.planned,
-			minor: sql<number>`sum(${schema.txn.amountMinor})`
+			minor: sql<number>`sum(case when ${schema.txn.refundOf} is not null then -${schema.txn.amountMinor} else ${schema.txn.amountMinor} end)`
 		})
 		.from(schema.txn)
 		.where(spendTxns(userId, range))
@@ -126,7 +126,9 @@ export function topThree(userId: number, range: Range): TopTxn[] {
 			spentOn: schema.txn.spentOn
 		})
 		.from(schema.txn)
-		.where(spendTxns(userId, range))
+		// Top *expenses*: refund rows are money back, not spending — netting
+		// lives in the sums, but a ranking of rows must not rank them at all.
+		.where(and(spendTxns(userId, range), isNull(schema.txn.refundOf)))
 		.orderBy(desc(schema.txn.amountMinor))
 		.limit(3)
 		.all()

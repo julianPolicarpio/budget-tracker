@@ -1,4 +1,4 @@
-# Contributing to Split
+# Contributing to Longhand
 
 Read Part One of `split-combined-spec.md` first. About a third of
 this codebase looks like a limitation if you haven't.

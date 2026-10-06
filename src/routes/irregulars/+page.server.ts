@@ -5,6 +5,8 @@ import { loadSettings } from '$lib/server/today';
 import { localToday } from '$lib/server/clock';
 import { openPeriodOn } from '$lib/server/rollover';
 import { parseMoney } from '$lib/money';
+import * as panels from '$lib/server/panel-forms';
+import { mapResult } from '$lib/server/panel-forms';
 import { isCategory } from '$lib/categories';
 import {
 	addMonths,
@@ -20,6 +22,13 @@ import {
 	skipInstance,
 	upcoming
 } from '$lib/server/irregulars';
+import {
+	FundingError,
+	fundPlannedExpense,
+	outstandingFor,
+	reservationBucketId,
+	unassignedInBucket
+} from '$lib/server/reservations';
 import type { PageServerLoad } from './$types';
 
 const CADENCES = [
@@ -65,6 +74,31 @@ export const load: PageServerLoad = ({ locals }) => {
 					: null
 		}));
 
+	const definitions = db
+		.select()
+		.from(schema.irregular)
+		.where(and(owns(schema.irregular), isNull(schema.irregular.archivedAt)))
+		.orderBy(asc(schema.irregular.nextDueOn))
+		.all();
+
+	// The funding form (A3.2) needs two numbers the reservation ledger already
+	// knows: what's already promised to each expense, and what's still free to
+	// promise in the Irregulars bucket. A user who archived or never had the
+	// bucket sees a form with nothing to assign rather than a 500.
+	let irregularsAccountId: number | null = null;
+	try {
+		irregularsAccountId = reservationBucketId(locals.userId);
+	} catch (err) {
+		if (!(err instanceof FundingError)) throw err;
+	}
+	const irregularsUnassignedMinor =
+		irregularsAccountId !== null ? unassignedInBucket(locals.userId, irregularsAccountId) : null;
+	const definitionsWithFunding = definitions.map((d) => ({
+		...d,
+		outstandingMinor:
+			irregularsAccountId !== null ? outstandingFor(locals.userId, d.id, irregularsAccountId) : 0
+	}));
+
 	return {
 		ready: true as const,
 		today,
@@ -74,12 +108,9 @@ export const load: PageServerLoad = ({ locals }) => {
 		outflow: monthlyOutflow(locals.userId, today),
 		accuracy: estimateAccuracy(locals.userId, addMonths(today, -12)),
 		history,
-		definitions: db
-			.select()
-			.from(schema.irregular)
-			.where(and(owns(schema.irregular), isNull(schema.irregular.archivedAt)))
-			.orderBy(asc(schema.irregular.nextDueOn))
-			.all(),
+		definitions: definitionsWithFunding,
+		irregularsAccountId,
+		irregularsUnassignedMinor,
 		archived: db
 			.select()
 			.from(schema.irregular)
@@ -104,11 +135,19 @@ export const actions: Actions = {
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
+		const id = Number(form.get('id')) || null;
+
+		// Create path is shared with Today's quick panel (src/lib/server/
+		// panel-forms.ts, helper `createPlanned`); the edit path is this
+		// route's own business — instances are re-priced here, never there.
+		if (!id) {
+			return mapResult(await panels.createPlanned(locals.userId, form, settings), '/irregulars');
+		}
+
 		const label = String(form.get('label') ?? '').trim();
 		const cadence = String(form.get('cadence') ?? '');
 		const nextDueOn = String(form.get('nextDueOn') ?? '');
 		const category = String(form.get('category') ?? '');
-		const id = Number(form.get('id')) || null;
 
 		const amountMinor = parseMoney(String(form.get('amount') ?? ''), settings.minorUnits);
 		const paddingPct = Number(form.get('paddingPct') ?? 25);
@@ -157,10 +196,6 @@ export const actions: Actions = {
 					)
 				)
 				.run();
-		} else {
-			db.insert(schema.irregular)
-				.values({ ...values, createdAt: new Date().toISOString(), userId: locals.userId })
-				.run();
 		}
 
 		materialise(locals.userId, localToday(settings.timezone));
@@ -178,6 +213,24 @@ export const actions: Actions = {
 			.where(and(owns(schema.irregular), eq(schema.irregular.id, id)))
 			.run();
 		redirect(303, '/irregulars');
+	},
+
+	/**
+	 * Add money to a planned expense (Spec A3.2, effect matrix op 5).
+	 *
+	 * `sourceAccountId` absent or blank is case 2 — assigning money already
+	 * sitting in the destination bucket, no balance moves. Present is case 1 —
+	 * a balanced move from that bucket into the destination, then the
+	 * reservation. Either way `fundPlannedExpense` does the atomic
+	 * available-to-assign check; this action only parses input and translates
+	 * its `FundingError` into a form error the same money can be retried with.
+	 */
+	fund: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
+		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
+
+		const form = await request.formData();
+		return mapResult(await panels.fund(locals.userId, form, settings), '/irregulars');
 	},
 
 	/**

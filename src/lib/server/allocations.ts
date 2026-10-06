@@ -168,9 +168,32 @@ export function stalePending(userId: number, period: Period, today: string): Che
 }
 
 /**
- * Tick one item off. Moves the asserted balance too — the user just told us
- * they made the transfer, and an untouched balance would contradict them at
- * the next review.
+ * Tick one item off: a balanced move from Income to the destination bucket.
+ *
+ * The user just told us they made the transfer, so both sides of it are
+ * recorded here — the destination is credited AND Income is debited by the
+ * same amount, inside the same transaction. Income is the arrived-money
+ * bucket (a location), not the income ledger: `income_source`, expected
+ * income and arrivals are separate tables and are untouched. Crediting the
+ * destination without debiting Income would count the arrival twice — once
+ * here, once still sitting in Income — and inflate the money map by the
+ * allocation sum. Every other money-movement path (recordTransfer, trips,
+ * irregulars) is balanced; this was the only lopsided one.
+ *
+ * Known limit, documented rather than papered over: a user who already
+ * reconciled by hand — asserted the destination at its new figure and left
+ * Income stale — double-counts when they then tick, because the app cannot
+ * distinguish "not yet moved" from "moved and reconciled by hand". Detecting
+ * that would require guessing at what a balance assertion meant (Spec
+ * amendment A3.3 forbids invented conversions); it is the reconciliation
+ * work (A1) that resolves it. Until then the error is at least symmetric:
+ * both buckets now say the same wrong thing, so the review catches it.
+ *
+ * Throws when the six buckets are incomplete (missing Income, or an
+ * allocation naming Income itself) — unreachable through normal flows, since
+ * provisioning creates all six and the checklist only ever names the other
+ * five. A throw here means the data is wrong in a way no silent fallback
+ * should hide.
  */
 export function executeAllocation(userId: number, allocationId: number, now: Date = new Date()): void {
 	const { db, owns } = forUser(userId);
@@ -188,17 +211,46 @@ export function executeAllocation(userId: number, allocationId: number, now: Dat
 			.get();
 		if (!alloc) return;
 
-		tx.update(schema.allocation)
-			.set({ executedAt: now.toISOString() })
-			.where(and(owns(schema.allocation), eq(schema.allocation.id, allocationId)))
-			.run();
-
 		const account = tx
 			.select()
 			.from(schema.account)
 			.where(and(owns(schema.account), eq(schema.account.id, alloc.accountId)))
 			.get();
+		// No destination, no move and no tick: the item stays pending rather
+		// than being marked done while its money went nowhere.
 		if (!account) return;
+
+		// Nothing to move — tick it off so it stops surfacing as stale.
+		if (alloc.amountMinor <= 0) {
+			tx.update(schema.allocation)
+				.set({ executedAt: now.toISOString() })
+				.where(and(owns(schema.allocation), eq(schema.allocation.id, alloc.id)))
+				.run();
+			return;
+		}
+
+		const inflow = tx
+			.select()
+			.from(schema.account)
+			.where(and(owns(schema.account), eq(schema.account.kind, 'inflow')))
+			.get();
+		if (!inflow) throw new Error(`No Income bucket for user ${userId}`);
+		if (inflow.id === account.id) {
+			throw new Error(`Allocation ${alloc.id} moves money out of and into the same bucket`);
+		}
+
+		tx.update(schema.allocation)
+			.set({ executedAt: now.toISOString() })
+			.where(and(owns(schema.allocation), eq(schema.allocation.id, alloc.id)))
+			.run();
+
+		tx.update(schema.account)
+			.set({
+				balanceMinor: inflow.balanceMinor - alloc.amountMinor,
+				balanceAsOf: now.toISOString().slice(0, 10)
+			})
+			.where(and(owns(schema.account), eq(schema.account.id, inflow.id)))
+			.run();
 
 		tx.update(schema.account)
 			.set({

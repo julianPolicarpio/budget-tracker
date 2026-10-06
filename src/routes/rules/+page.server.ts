@@ -1,9 +1,9 @@
 import { fail, redirect, type Actions } from '@sveltejs/kit';
 import { loadSettings } from '$lib/server/today';
-import { parseMoney } from '$lib/money';
+import * as panels from '$lib/server/panel-forms';
+import { mapResult } from '$lib/server/panel-forms';
 import {
 	RULE_CATEGORIES,
-	addWaitItem,
 	dropRateBp,
 	fireRule,
 	listRules,
@@ -58,7 +58,17 @@ export const actions: Actions = {
 	},
 
 	upsert: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
+		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
+
 		const form = await request.formData();
+
+		// Create path is shared with Today's quick panel (panel-forms helper
+		// `upsertRule`); edits keep this route's id-bearing call.
+		if (!Number(form.get('id'))) {
+			return mapResult(await panels.upsertRule(locals.userId, form, settings), '/rules');
+		}
+
 		const cue = String(form.get('cue') ?? '').trim();
 		const action = String(form.get('action') ?? '').trim();
 		const category = String(form.get('category') ?? '');
@@ -84,14 +94,7 @@ export const actions: Actions = {
 	addWait: async ({ request, locals }) => {
 		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
-
-		const form = await request.formData();
-		const label = String(form.get('label') ?? '').trim();
-		if (!label) return fail(400, { error: 'Name the thing you want.' });
-
-		const raw = String(form.get('amount') ?? '').trim();
-		addWaitItem(locals.userId, label, raw ? parseMoney(raw, settings.minorUnits) : null);
-		redirect(303, '/rules');
+		return mapResult(await panels.addWait(locals.userId, await request.formData(), settings), '/rules');
 	},
 
 	resolve: async ({ request, locals }) => {

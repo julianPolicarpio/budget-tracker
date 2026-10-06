@@ -202,3 +202,16 @@ describe('a transfer records nothing and does not change today', () => {
 		expect(txnCount()).toBe(before);
 	});
 });
+
+describe('a new fixed bill needs the reviewed billing-date form', () => {
+	it('does not create a subscription from the old typed shortcut', async () => {
+		const before = (m.sqlite.prepare('SELECT count(*) AS n FROM subscription WHERE user_id = ?').get(USER) as { n: number }).n;
+		const result = await invoke('logEntry', {
+			text: 'new streaming subscription 1100 monthly',
+			commitmentMode: 'same',
+			clientUuid: 'date-less-bill-shortcut'
+		});
+		expect(result).toMatchObject({ status: 400, data: { field: 'text' } });
+		expect((m.sqlite.prepare('SELECT count(*) AS n FROM subscription WHERE user_id = ?').get(USER) as { n: number }).n).toBe(before);
+	});
+});

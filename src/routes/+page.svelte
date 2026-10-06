@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import { enhance } from '$app/forms';
-	import { invalidateAll } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import LogOverlay from '$lib/components/LogOverlay.svelte';
 	import EntryResolution from '$lib/components/EntryResolution.svelte';
+	import ActionView from '$lib/components/actions/ActionView.svelte';
+	import NavStrip from '$lib/components/NavStrip.svelte';
 	import { CATEGORIES, categoryLabel, type CategoryKey } from '$lib/categories';
 	import {
 		LogEntry,
@@ -16,6 +18,10 @@
 	import * as outbox from '$lib/outbox';
 	import type { ParsedEntry, ParseContext } from '$lib/entry-parser';
 	import { formatMoney, parseMoney } from '$lib/money';
+	import { ACTION_PILLS } from '$lib/actions/catalogue';
+	import { actionViewFor } from '$lib/actions/action-view';
+	import { draftForAction, type ActionDraft } from '$lib/actions/draft';
+	import { resolveProtectedIntent } from '$lib/actions/intent';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -56,6 +62,21 @@
 	let mobileFormEl = $state<HTMLFormElement | undefined>();
 	let nothingForm = $state<HTMLFormElement | undefined>();
 	let overlayOpen = $state(false);
+	/** The action the typing bar has switched to (a pill was tapped) — the
+	 * desktop overlay's *content*, not a second surface. `undefined` is the
+	 * bar itself. Owner request: one surface, so a pill swaps the panel's
+	 * content instead of closing it and opening the Actions panel. */
+	let actionId = $state<string | undefined>(undefined);
+	/** The same idea for the mobile bar, which is the resident field rather
+	 * than an overlay: the field is replaced by the action view in place. */
+	let mobileActionId = $state<string | undefined>(undefined);
+	let desktopActionDraft = $state<ActionDraft | undefined>(undefined);
+	let mobileActionDraft = $state<ActionDraft | undefined>(undefined);
+	let desktopIntentChoices = $state<{ source: string; ids: string[] } | null>(null);
+	let mobileIntentChoices = $state<{ source: string; ids: string[] } | null>(null);
+	let desktopIntentLoading = $state(false);
+	let mobileIntentLoading = $state(false);
+	let intentSequence = 0;
 	let isDesktop = $state(false);
 	let toast = $state<string | null>(null);
 	let toastTimer: ReturnType<typeof setTimeout> | undefined;
@@ -70,21 +91,22 @@
 	let queueStuck = $state<string | null>(null);
 
 	/*
-	 * The door's destinations. Named for what a person would call them, with a
-	 * line saying what each holds — "Irregulars" and "Rules" told the owner
-	 * nothing, and a bare list of better names would only have been less wrong.
+	 * Two absences on this page, both deliberate, both easy to "fix" back in.
+	 *
+	 * The destination list is gone. It used to live here as a `DOOR` array with
+	 * a description per entry, behind a toggle. It is now `NavStrip`, reading
+	 * the single `$lib/nav/destinations` list that every screen shares, so the
+	 * nine destinations cannot drift between Today and the other screens again.
+	 * The descriptions are not coming back: they answer "what is this tab" once
+	 * and are noise every night after (DESIGN.md, Voice).
+	 *
+	 * The A6 money-in forms ("Money landed" / "Money back") live in their own
+	 * components, `$lib/components/actions/RecordIncomeForm.svelte` and
+	 * `RecordRefundForm.svelte`, rendered by the typing bar's action view
+	 * (`ActionView.svelte`). Today's own markup does not duplicate them
+	 * (Spec A2: "Do not... show the whole action catalogue permanently";
+	 * Spec A6: no duplicated accounting code across routes).
 	 */
-	let doorOpen = $state(false);
-	const DOOR = [
-		{ href: '/review', label: 'Weekly review', holds: '15 minutes, once a week' },
-		{ href: '/irregulars', label: 'Big bills', holds: 'Tuition, insurance, the annual ones' },
-		{ href: '/subscriptions', label: 'Subscriptions', holds: 'What renews, and when to kill it' },
-		{ href: '/accounts', label: 'Accounts', holds: 'Which account holds what' },
-		{ href: '/rules', label: 'Wishlist', holds: 'Wants parked for 72 hours' },
-		{ href: '/trips', label: 'Trips', holds: 'Spending abroad' },
-		{ href: '/debt', label: 'Debt', holds: "What's left to pay off" },
-		{ href: '/trends', label: 'Trends', holds: 'Where it went over time' }
-	];
 
 	async function refreshQueuedCount() {
 		if (data.userId == null) return;
@@ -173,12 +195,12 @@
 			// dismiss it with.
 			if (!window.matchMedia(DESKTOP).matches || overlayOpen || !view) return;
 
-			// ⌘K / Ctrl+K opens it empty.
+			// ⌘K / Ctrl+K opens the logging bar itself — the actions live on its
+			// pills, and the Actions panel it used to open is gone (owner
+			// request: one surface, so the transition is seamless).
 			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
 				event.preventDefault();
-				if (view?.trip) desktopTripEntry.reset();
-				else desktopEntry.reset();
-				overlayOpen = true;
+				openLogOverlay();
 				return;
 			}
 			if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -253,6 +275,132 @@
 			minorUnits: view!.currency.minorUnits,
 			symbol: view!.currency.symbol
 		});
+	}
+
+	/** Open the log overlay the same way typing a digit does — empty field,
+	 * focused, and back on the bar rather than on whatever action was open. */
+	function openLogOverlay() {
+		intentSequence++;
+		actionId = undefined;
+		desktopActionDraft = undefined;
+		desktopIntentChoices = null;
+		if (!window.matchMedia(DESKTOP).matches || !view) return;
+		if (view.trip) desktopTripEntry.reset();
+		else desktopEntry.reset();
+		overlayOpen = true;
+	}
+
+	/**
+	 * An action-feature pill on the typing bar (Record income, Transfer
+	 * money, Record a payment...). The bar no longer hands off to a second
+	 * surface (owner request: seamless transition) — the same panel, or the
+	 * same resident field, swaps its content to that action's view.
+	 *
+	 * The one exception is a `dedicated` action: its form lives on its own
+	 * tab and this page has no server action to submit it, so the bar
+	 * navigates there rather than rendering a form that could not be saved.
+	 */
+	function openActionFromPill(id: string) {
+		intentSequence++;
+		desktopActionDraft = undefined;
+		mobileActionDraft = undefined;
+		desktopIntentChoices = null;
+		mobileIntentChoices = null;
+		const view = actionViewFor(id);
+		if (view?.kind === 'navigate') {
+			actionId = undefined;
+			mobileActionId = undefined;
+			overlayOpen = false;
+			void goto(view.target);
+			return;
+		}
+		if (isDesktop) {
+			actionId = id;
+			overlayOpen = true;
+		} else {
+			mobileActionId = id;
+		}
+	}
+
+	/** Keep the original sentence while the person reviews the proposed form. */
+	function openIntentAction(id: string, desktop: boolean, raw: string) {
+		if (!view) return;
+		const target = actionViewFor(id);
+		if (!target) return;
+		if (target.kind === 'navigate') {
+			openActionFromPill(id);
+			return;
+		}
+		const previous = desktop ? desktopActionDraft : mobileActionDraft;
+		const draft = previous?.sourceText === raw && previous.actionId === id
+			? previous
+			: draftForAction(id, raw, view.currency.minorUnits);
+		if (desktop) {
+			desktopActionDraft = draft;
+			desktopIntentChoices = null;
+			actionId = draft.actionId;
+			overlayOpen = true;
+		} else {
+			mobileActionDraft = draft;
+			mobileIntentChoices = null;
+			mobileActionId = draft.actionId;
+		}
+	}
+
+	function fallbackIntentChoices(raw: string): string[] {
+		if (!view) return [];
+		const local = resolveProtectedIntent(raw, parseContext, view.currency.minorUnits);
+		if (local.kind === 'spending' || local.kind === 'existing') return [];
+		const first = local.kind === 'action' ? [local.actionId] : [];
+		return [...new Set([...first, 'add-bill-subscription', 'transfer-money', 'add-debt'])].slice(0, 3);
+	}
+
+	async function continueTypedRequest(desktop: boolean) {
+		if (!view) return;
+		const entry = desktop ? desktopEntry : mobileEntry;
+		const raw = entry.text.trim();
+		if (!raw) return;
+		const sequence = ++intentSequence;
+		if (desktop) desktopIntentLoading = true;
+		else mobileIntentLoading = true;
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), 3500);
+		try {
+			const response = await fetch('/api/intent', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ text: raw }),
+				signal: controller.signal
+			});
+			const result: unknown = response.ok ? await response.json() : null;
+			if (sequence !== intentSequence || entry.text.trim() !== raw) return;
+			if (result && typeof result === 'object') {
+				const answer = result as { kind?: unknown; actionId?: unknown; actionIds?: unknown };
+				if (answer.kind === 'action' && typeof answer.actionId === 'string' && actionViewFor(answer.actionId)) {
+					openIntentAction(answer.actionId, desktop, raw);
+					return;
+				}
+				if (answer.kind === 'choices' && Array.isArray(answer.actionIds)) {
+					const ids = answer.actionIds.filter((id): id is string => typeof id === 'string' && Boolean(actionViewFor(id))).slice(0, 3);
+					const choices = { source: raw, ids };
+					if (desktop) desktopIntentChoices = choices;
+					else mobileIntentChoices = choices;
+					return;
+				}
+			}
+		} catch {
+			// The optional service or connection can fail; keep the typed text.
+		} finally {
+			clearTimeout(timer);
+			if (sequence === intentSequence) {
+				if (desktop) desktopIntentLoading = false;
+				else mobileIntentLoading = false;
+			}
+		}
+		if (sequence !== intentSequence || entry.text.trim() !== raw) return;
+		const choices = { source: raw, ids: fallbackIntentChoices(raw) };
+		if (desktop) desktopIntentChoices = choices;
+		else mobileIntentChoices = choices;
 	}
 
 	/** Amounts in the trip's own currency, at the trip's own scale. */
@@ -331,26 +479,11 @@
 </svelte:head>
 
 {#if !view}
-	<!-- First run. An empty screen is an invitation to act, not a broken one. -->
 	<main class="shell">
 		<div class="setup">
 			<p class="legend">Not set up</p>
-			<p class="setup-lede">
-				Split needs a currency, a timezone and one open period before it can show you a number.
-			</p>
-			<ol class="setup-steps">
-				{#if data.inContainer}
-					<li><code>docker compose exec split node scripts/init.js</code></li>
-					<li>
-						<code>docker compose exec split node scripts/open-period.js --alloc 4200 --days 7</code>
-					</li>
-				{:else}
-					<li><code>npm run db:migrate</code></li>
-					<li><code>npm run db:init</code></li>
-					<li><code>npm run period:open -- --alloc 4200 --days 7</code></li>
-				{/if}
-			</ol>
-			<p class="setup-foot">Your daily band appears here once a period is open.</p>
+			<p class="setup-lede">Five questions, and Split can show you a number.</p>
+			<a class="setup-go" href="/setup">Set up Split</a>
 		</div>
 	</main>
 {:else}
@@ -430,14 +563,7 @@
 			{:else}
 				<div class="hero">
 					<p class="no-period">No open period.</p>
-					<p class="no-period-hint">
-						Set this period's Spend allocation and the band appears here:
-						<code
-							>{data.inContainer
-								? 'docker compose exec split node scripts/open-period.js --alloc <amount> --days 7'
-								: 'npm run period:open -- --alloc <amount> --days 7'}</code
-						>
-					</p>
+					<a class="setup-go" href="/setup">Finish setting up</a>
 				</div>
 			{/if}
 		</header>
@@ -623,6 +749,12 @@
 								i === 0}
 						>
 							<span class="entry-cat">
+								{#if entry.refundOf !== null}
+									<!-- Money back, not new spending — it reads as the opposite sign
+									     even though the row amount stays positive. Refunds land in
+									     whichever account the user picked, not the original's. -->
+									<span class="flag refund-flag">money back</span>
+								{/if}
 								{CATEGORIES.find((c) => c.key === entry.category)?.label}
 								{#if !entry.planned}
 									<span class="flag">unplanned</span>
@@ -729,58 +861,111 @@
 				the app understood and, last on the line, what it will do to
 				today's number (Spec §5.6).
 			-->
-			<form
-				class="log"
-				method="POST"
-				action="?/logEntry"
-				bind:this={mobileFormEl}
-				use:enhance={offlineLogSubmit(
-					mobileEntry,
-					() => mobileResolved,
-					data.userId,
-					undefined,
-					refreshQueuedCount
-				)}
-			>
-				<input type="hidden" name="clientUuid" value={mobileEntry.clientUuid} />
-				<input type="hidden" name="planned" value={mobileEntry.planned} />
-				<input type="hidden" name="commitmentMode" value={mobileEntry.commitmentMode} />
-				<input type="hidden" name="taughtWord" value={mobileEntry.taughtWord} />
-				<input type="hidden" name="taughtEnglish" value={mobileEntry.taughtEnglish} />
-				<input type="hidden" name="taughtRoot" value={mobileEntry.taughtRoot} />
-
-				<label class="entry-label" for="log-mobile">
-					<span class="sr-only">What did you spend on?</span>
-				</label>
-				<!-- svelte-ignore a11y_autofocus -->
-				<input
-					id="log-mobile"
-					class="entry-field"
-					name="text"
-					bind:value={mobileEntry.text}
-					type="text"
-					autocomplete="off"
-					autocorrect="off"
-					spellcheck="false"
-					placeholder="kape 65"
-					onkeydown={(e) => {
-						if (e.key === 'Enter') e.preventDefault();
+			{#if mobileActionId}
+				<!--
+					A pill was tapped on the resident field: the action's own view
+					takes the field's place rather than opening the Actions panel
+					(owner request). Same slot, same surface.
+				-->
+				<ActionView
+					actionId={mobileActionId}
+					context={data.actionContext}
+					draft={mobileActionDraft}
+					onDraftChange={(draft) => (mobileActionDraft = draft)}
+					onBack={() => {
+						mobileActionId = undefined;
 					}}
-					autofocus
+					onSaved={() => {
+						mobileActionId = undefined;
+						mobileActionDraft = undefined;
+						mobileEntry.reset();
+						void invalidateAll();
+					}}
 				/>
+			{:else}
+				<form
+					class="log"
+					method="POST"
+					action="?/logEntry"
+					bind:this={mobileFormEl}
+					use:enhance={offlineLogSubmit(
+						mobileEntry,
+						() => mobileResolved,
+						data.userId,
+						undefined,
+						refreshQueuedCount
+					)}
+				>
+					<input type="hidden" name="clientUuid" value={mobileEntry.clientUuid} />
+					<input type="hidden" name="planned" value={mobileEntry.planned} />
+					<input type="hidden" name="commitmentMode" value={mobileEntry.commitmentMode} />
+					<input type="hidden" name="taughtWord" value={mobileEntry.taughtWord} />
+					<input type="hidden" name="taughtEnglish" value={mobileEntry.taughtEnglish} />
+					<input type="hidden" name="taughtRoot" value={mobileEntry.taughtRoot} />
 
-				<EntryResolution
-					entry={mobileEntry}
-					resolved={mobileResolved}
-					minorUnits={view.currency.minorUnits}
-					symbol={view.currency.symbol}
-					onSubmit={submitMobileEntry}
-				/>
+					<label class="entry-label" for="log-mobile">
+						<span class="sr-only">What did you spend on?</span>
+					</label>
+					<!-- svelte-ignore a11y_autofocus -->
+					<input
+						id="log-mobile"
+						class="entry-field"
+						name="text"
+						bind:value={mobileEntry.text}
+						type="text"
+						autocomplete="off"
+						autocorrect="off"
+						spellcheck="false"
+						placeholder="kape 65"
+						oninput={() => {
+							intentSequence++;
+							mobileIntentLoading = false;
+							mobileIntentChoices = null;
+						}}
+						onkeydown={(e) => {
+							if (e.key === 'Enter') e.preventDefault();
+						}}
+						autofocus
+					/>
 
-				{#if form?.error}
-					<p class="err" role="alert">{form.error}</p>
-				{/if}
-			</form>
+					<!--
+					Action-feature pills (user request): the catalogue's money
+					operations, so opening this bar shows what else the app can do
+					besides logging spending — one tap hands off to the shared
+					panel, preset to that action. Hidden the moment there is text,
+					exactly like autocomplete suggestions.
+				-->
+					{#if mobileEntry.text.trim() === ''}
+						<div class="sugg-row">
+							{#each ACTION_PILLS as p (p.id)}
+								<button
+									type="button"
+									class="sugg-pill sugg-pill--action"
+									onclick={() => openActionFromPill(p.id)}
+								>
+									{p.label}
+								</button>
+							{/each}
+						</div>
+					{/if}
+
+					<EntryResolution
+						entry={mobileEntry}
+						resolved={mobileResolved}
+						minorUnits={view.currency.minorUnits}
+						symbol={view.currency.symbol}
+						onSubmit={submitMobileEntry}
+						onContinue={() => continueTypedRequest(false)}
+						onChooseAction={(id) => openIntentAction(id, false, mobileEntry.text.trim())}
+						intentLoading={mobileIntentLoading}
+						intentChoices={mobileIntentChoices}
+					/>
+
+					{#if form?.error}
+						<p class="err" role="alert">{form.error}</p>
+					{/if}
+				</form>
+			{/if}
 
 			<!--
 				The offline outbox's queue (Spec §6, task A5). Part of the log form,
@@ -811,12 +996,12 @@
 			The door (Spec §9).
 
 			Every dense screen in this app existed and the owner never found one:
-			`ReviewNav` is deliberately absent from Today, so the only way in was
+			`NavStrip` is deliberately absent from Today, so the only way in was
 			typing a URL. When finally shown the destinations he could not tell
 			what "Irregulars", "Rules" or "Money map" were — which is a naming
 			failure, not a user failure, and §5.12 fixed the words.
 
-			This is a disclosure, not a nav bar. `ReviewNav`'s own comment is right
+			This is a disclosure, not a nav bar. `NavStrip`'s own comment is right
 			that a permanent nav on Today is an invitation to go looking for
 			balances, and the whole withholding layer exists to prevent that. So it
 			sits below the log form, collapsed, one quiet line — and each
@@ -825,39 +1010,9 @@
 
 			`todayView()` gains no field for this.
 		-->
-		<div class="door">
-			<button
-				type="button"
-				class="door-toggle"
-				aria-expanded={doorOpen}
-				aria-controls="door-list"
-				onclick={() => (doorOpen = !doorOpen)}
-			>
-				<span>Review, bills, trends, accounts</span>
-				<span class="door-chev" aria-hidden="true">{doorOpen ? '↓' : '→'}</span>
-			</button>
-
-			{#if doorOpen}
-				<ul id="door-list" class="door-list">
-					{#each DOOR as d (d.href)}
-						<li>
-							<a href={d.href}>
-								<b>{d.label}</b>
-								<i>{d.holds}</i>
-							</a>
-						</li>
-					{/each}
-				</ul>
-			{/if}
+		<div class="door-strip">
+			<NavStrip />
 		</div>
-
-		<!-- Desktop only: the idle screen is the hero, so the way in is a hint. -->
-		<p class="kbd-hint">
-			<kbd>⌘K</kbd> to log · start typing
-			{#if !view.dayClosed}
-				· <kbd>N</kbd> for a zero day
-			{/if}
-		</p>
 	</main>
 
 	<LogOverlay
@@ -872,9 +1027,35 @@
 		userId={data.userId}
 		{queuedCount}
 		onQueueChanged={refreshQueuedCount}
-		onClose={() => (overlayOpen = false)}
+		onClose={() => {
+		intentSequence++;
+		desktopIntentLoading = false;
+		overlayOpen = false;
+	}}
 		{onTripSaved}
 		onEntrySaved={onDesktopEntrySaved}
+		onActionPill={openActionFromPill}
+		{actionId}
+		actionDraft={desktopActionDraft}
+		onActionDraftChange={(draft) => (desktopActionDraft = draft)}
+		onContinue={() => continueTypedRequest(true)}
+		onTextChanged={() => {
+		intentSequence++;
+		desktopIntentLoading = false;
+		desktopIntentChoices = null;
+	}}
+		onChooseAction={(id) => openIntentAction(id, true, desktopEntry.text.trim())}
+		intentLoading={desktopIntentLoading}
+		intentChoices={desktopIntentChoices}
+		actionContext={data.actionContext}
+		onActionBack={() => (actionId = undefined)}
+		onActionSaved={() => {
+			actionId = undefined;
+			desktopActionDraft = undefined;
+			desktopEntry.reset();
+			overlayOpen = false;
+			void invalidateAll();
+		}}
 	/>
 
 	{#if toast}
@@ -961,16 +1142,17 @@
 		color: var(--ink-secondary);
 	}
 
-	.no-period-hint {
-		margin: 0;
-		color: var(--ink-muted);
-		font-size: 0.875rem;
-		max-width: 24rem;
-	}
-
-	.no-period-hint code {
-		font-family: var(--font-mono);
-		font-size: 0.8125em;
+	.setup-go {
+		display: inline-flex;
+		align-items: center;
+		min-height: var(--touch);
+		padding: 0 1rem;
+		margin-top: 0.75rem;
+		background: var(--accent-solid);
+		color: #fff;
+		border-radius: 0.5rem;
+		text-decoration: none;
+		font-weight: 600;
 	}
 
 	.head-line {
@@ -1307,6 +1489,11 @@
 		color: var(--ink);
 	}
 
+	.flag.refund-flag {
+		color: var(--success, #1a7f4b);
+		margin-right: 0.5rem;
+	}
+
 	.just-saved {
 		animation: settle 180ms ease-out;
 	}
@@ -1385,6 +1572,33 @@
 	.entry-field:focus {
 		outline: none;
 		border-color: var(--accent);
+	}
+
+	/* ── Action-feature pills under the typing bar (user request) ─────────
+	   The catalogue's money operations, one tap each into the shared panel;
+	   hidden once there is text in the field, like autocomplete
+	   suggestions. */
+	.sugg-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.375rem;
+		margin-top: 0.5rem;
+	}
+
+	.sugg-pill {
+		font: inherit;
+		font-size: 0.8125rem;
+		padding: 0.2rem 0.65rem;
+		border: 1px solid var(--hairline-strong);
+		border-radius: 999px;
+		background: var(--surface);
+		color: var(--ink-secondary);
+		cursor: pointer;
+	}
+
+	.sugg-pill:active {
+		border-color: var(--accent);
+		color: var(--ink);
 	}
 
 	.chips,
@@ -1566,72 +1780,13 @@
 		font-size: 0.8125rem;
 	}
 
-	/* ── The door (Spec §9) ──────────────────────────────────────────────
-	   Quiet by construction. It must never read as a nav bar: one line, ink-muted
-	   until hovered, no fill, no border until it opens. */
 
-	.door {
+	/* ── The destination strip ──────────────────────────────────────────
+	   Spacing only. The strip itself is `NavStrip`, which owns its own look so
+	   every screen gets the identical row; see that component for why the rule
+	   sits above it here and below it everywhere else. */
+	.door-strip {
 		margin-top: 1.5rem;
-		padding-top: 1rem;
-		border-top: 1px solid var(--hairline);
-	}
-
-	.door-toggle {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		width: 100%;
-		min-height: var(--touch);
-		padding: 0;
-		background: none;
-		border: 0;
-		color: var(--ink-muted);
-		font-family: inherit;
-		font-size: 0.8125rem;
-		text-align: left;
-		cursor: pointer;
-	}
-
-	.door-toggle:hover {
-		color: var(--ink);
-	}
-
-	.door-chev {
-		margin-left: auto;
-	}
-
-	.door-list {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-	}
-
-	.door-list a {
-		display: flex;
-		align-items: baseline;
-		gap: 0.75rem;
-		padding: 0.5rem 0;
-		border-bottom: 1px solid var(--hairline);
-		text-decoration: none;
-	}
-
-	.door-list li:last-child a {
-		border-bottom: 0;
-	}
-
-	.door-list b {
-		font-weight: 500;
-		font-size: 0.8125rem;
-		color: var(--ink);
-		white-space: nowrap;
-	}
-
-	.door-list i {
-		margin-left: auto;
-		font-style: normal;
-		font-size: 0.6875rem;
-		color: var(--ink-muted);
-		text-align: right;
 	}
 
 	/* ── Offline outbox queue note (Spec §6, task A5) ────────────────────
@@ -1659,26 +1814,6 @@
 		max-width: 26rem;
 	}
 
-	.setup-steps {
-		margin: 0;
-		padding-left: 1.25rem;
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-		color: var(--ink-secondary);
-	}
-
-	.setup-steps code {
-		font-family: var(--font-mono);
-		font-size: 0.8125rem;
-	}
-
-	.setup-foot {
-		margin: 0;
-		color: var(--ink-muted);
-		font-size: 0.875rem;
-	}
-
 	.sr-only {
 		position: absolute;
 		width: 1px;
@@ -1691,11 +1826,7 @@
 		border: 0;
 	}
 
-	/* The keyboard hint and the toast belong to the desktop shell only. */
-	.kbd-hint {
-		display: none;
-	}
-
+	/* The toast belongs to the desktop shell only. */
 	.toast {
 		position: fixed;
 		left: 50%;
@@ -1787,21 +1918,6 @@
 
 		.horizon {
 			margin-top: 0;
-		}
-
-		.kbd-hint {
-			display: block;
-			margin: 0;
-			color: var(--ink-muted);
-			font-size: 0.8125rem;
-		}
-
-		.kbd-hint kbd {
-			font-family: var(--font-mono);
-			font-size: 0.75rem;
-			padding: 0.1rem 0.35rem;
-			border: 1px solid var(--hairline-strong);
-			border-radius: 0.25rem;
 		}
 	}
 </style>

@@ -2,6 +2,8 @@ import { fail, redirect, type Actions } from '@sveltejs/kit';
 import { loadSettings } from '$lib/server/today';
 import { localToday } from '$lib/server/clock';
 import { parseMoney } from '$lib/money';
+import * as panels from '$lib/server/panel-forms';
+import { mapResult } from '$lib/server/panel-forms';
 import { IouRequired } from '$lib/server/accounts';
 import {
 	MAX_TRIP_DAYS,
@@ -61,59 +63,7 @@ export const actions: Actions = {
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
-		const label = String(form.get('label') ?? '').trim();
-		const startsOn = String(form.get('startsOn') ?? '');
-		const endsOn = String(form.get('endsOn') ?? '');
-		const tripTz = String(form.get('tripTz') ?? '').trim();
-		const currencyCode = String(form.get('currencyCode') ?? '')
-			.trim()
-			.toUpperCase();
-		const currencySymbol = String(form.get('currencySymbol') ?? '').trim();
-		const localMinorUnits = Number(form.get('localMinorUnits'));
-		const fxRateToHome = Number(form.get('fxRateToHome'));
-		const estimateMinor = parseMoney(String(form.get('estimate') ?? ''), settings.minorUnits);
-
-		if (!label) return fail(400, { error: 'Give the trip a name.' });
-		if (!/^\d{4}-\d{2}-\d{2}$/.test(startsOn) || !/^\d{4}-\d{2}-\d{2}$/.test(endsOn)) {
-			return fail(400, { error: 'Both dates are required.' });
-		}
-		if (endsOn < startsOn) return fail(400, { error: 'It cannot end before it starts.' });
-		try {
-			new Intl.DateTimeFormat('en-CA', { timeZone: tripTz });
-		} catch {
-			return fail(400, { error: `"${tripTz}" is not a valid IANA timezone.` });
-		}
-		if (!currencyCode || !currencySymbol) {
-			return fail(400, { error: 'The currency code and symbol are both needed.' });
-		}
-		// Never inherited from settings: JPY/KRW/VND have none, and a wrong
-		// value here is a silent 100x entry error on the first purchase abroad.
-		if (![0, 2, 3].includes(localMinorUnits)) {
-			return fail(400, { error: 'Decimal places must be 0, 2 or 3 — check the currency.' });
-		}
-		if (!(fxRateToHome > 0)) return fail(400, { error: 'Enter the rate you actually got.' });
-		if (estimateMinor === null || estimateMinor <= 0) {
-			return fail(400, { error: 'Enter an estimate above zero.' });
-		}
-
-		try {
-			declareTrip(locals.userId, {
-				label,
-				startsOn,
-				endsOn,
-				tripTz,
-				currencyCode,
-				currencySymbol,
-				localMinorUnits,
-				fxRateToHome,
-				estimateMinor
-			});
-		} catch (err) {
-			if (err instanceof TripTooLong) return fail(422, { error: err.message });
-			return fail(400, { error: err instanceof Error ? err.message : 'Could not declare.' });
-		}
-
-		redirect(303, '/trips');
+		return mapResult(await panels.declare(locals.userId, form, settings), '/trips');
 	},
 
 	activate: async ({ request, locals }) => {

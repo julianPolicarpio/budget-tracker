@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Figure from '$lib/components/Figure.svelte';
-	import ReviewNav from '$lib/components/ReviewNav.svelte';
+	import NavStrip from '$lib/components/NavStrip.svelte';
 	import { enhance } from '$app/forms';
 	import { dailyAllowance, displayBand } from '$lib/allowance';
 	import { formatMoney, parseMoney } from '$lib/money';
@@ -79,6 +79,8 @@
 	</main>
 {:else}
 	<main class="sheet">
+		<NavStrip />
+
 		<header class="masthead">
 			<div>
 				<p class="eyebrow">Weekly review</p>
@@ -91,8 +93,6 @@
 				</h1>
 			</div>
 		</header>
-
-		<ReviewNav />
 
 		<!-- Six steps, and the rail says which one you are on. This is a real
 		     sequence, so it is numbered. -->
@@ -120,8 +120,8 @@
 			<section class="step">
 				<h2>Balances</h2>
 				<p class="lede">
-					Open each account and type what it actually says. Physical recording is what carries the
-					effect — thinking about the number does not do this work.
+					Open each account and type the exact number you see. Typing it, not eyeballing it, is
+					what makes this work.
 				</p>
 
 				<form method="POST" action="?/balances" use:enhance>
@@ -161,6 +161,9 @@
 		{#if data.stepKey === 'actuals'}
 			<section class="step">
 				<h2>This week</h2>
+				<p class="lede">
+					What you spent, and how much was unplanned. Just look it over, nothing to type here.
+				</p>
 
 				{#if data.actuals.totalMinor === 0}
 					<p class="empty">
@@ -219,9 +222,9 @@
 						</div>
 						<p class="meter-foot">
 							{#if data.prior?.unplannedRatioBp != null}
-								Tick marks last week: {Math.round(data.prior.unplannedRatioBp / 100)}%.
+								The mark on the bar is last week: {Math.round(data.prior.unplannedRatioBp / 100)}%.
 							{/if}
-							40–50% is a normal start. Under 25% by month three is good.
+							Most people start at 40 to 50 percent. Under 25 percent by month three is a good sign.
 						</p>
 					</div>
 				{/if}
@@ -243,7 +246,8 @@
 					<p class="reconstructed" role="note">
 						{data.reconstruction.reconstructed} of {data.reconstruction.total} days
 						{data.reconstruction.total === 1 ? 'was' : 'were'} filled in afterwards, not logged
-						on the night. Recalled spending tends to run low, so read this week as a floor.
+						on the night. Recall usually misses things, so the real total is probably a bit
+						higher than shown.
 					</p>
 				{/if}
 
@@ -345,7 +349,8 @@
 			<section class="step">
 				<h2>Top three</h2>
 				<p class="lede">
-					Not the total — the top three. One question each, three answers, no analysis.
+					Your three biggest spends this week. For each one, pick an answer. That is the whole
+					task.
 				</p>
 
 				{#if data.topThree.length === 0}
@@ -392,8 +397,8 @@
 			<section class="step">
 				<h2>Coming up</h2>
 				<p class="lede">
-					Anything on the calendar that costs money? Naming it now is what stops it eating the daily
-					number later.
+					Look at the next 7 days. Type anything coming that will cost money, so this week's
+					number is ready for it.
 				</p>
 
 				<ol class="calendar">
@@ -406,8 +411,8 @@
 				</ol>
 
 				<p class="empty">
-					Scheduled irregulars appear on this strip in Phase 3, with a one-tap “move to Spend,
-					tagged”. Until then, write them down.
+					Bills with known dates will appear on this strip in a later version. For now, type
+					them in the box below.
 				</p>
 
 				<form method="POST" action="?/step" use:enhance>
@@ -418,7 +423,7 @@
 						<textarea
 							name="notes"
 							rows="3"
-							placeholder="Enrolment fee Thursday, ₱3,000 — from Big bills"></textarea>
+							placeholder="Enrolment fee Thursday, ₱3,000, from Big bills"></textarea>
 					</label>
 					<button class="primary" type="submit">Continue</button>
 				</form>
@@ -430,14 +435,14 @@
 			<section class="step">
 				<h2>Next week</h2>
 				<p class="lede">
-					Mid-period adjustment is one of the interventions that reduced overspending. A budget you
-					are allowed to update is a budget you do not abandon.
+					Set your daily number for the rest of this period. Type a new amount, or keep the one
+					you have. Updating it is the point, not a failure.
 				</p>
 
 				{#if !data.period}
 					<p class="empty">
-						No open period, so there is nothing to adjust. Open one with
-						<code>npm run period:open</code>.
+						No open period, so there is nothing to adjust. Finish
+						setting up at <code>/setup</code>.
 					</p>
 					<form method="POST" action="?/adjust" use:enhance>
 						<input type="hidden" name="keep" value="1" />
@@ -460,13 +465,13 @@
 									<dd>{money(data.period.spendAllocMinor)}</dd>
 								</div>
 								<div>
-									<dt>Haircut</dt>
+									<dt>Safety margin</dt>
 									<dd>{data.haircutPct}%</dd>
 								</div>
 							</dl>
 
 							<label class="field block">
-								<span class="field-label">New Spend allocation for the period</span>
+								<span class="field-label">New spending amount for the period</span>
 								<span class="field-input">
 									<span class="field-sym">{data.currency.symbol}</span>
 									<input
@@ -481,12 +486,12 @@
 
 							{#if preview}
 								<p class="preview">
-									<span class="eyebrow">New band</span>
+									<span class="eyebrow">Your daily range</span>
 									<span class="preview-band"
 										>{money(preview.band.low)} – {money(preview.band.high)}</span
 									>
 									<span class="preview-note">
-										from {money(preview.allowance)}/day · replaces the period, never edits it
+										starts now, past days keep their numbers · {money(preview.allowance)}/day
 									</span>
 								</p>
 							{/if}
@@ -508,16 +513,15 @@
 
 				{#if !data.review.completedAt}
 					<p class="lede">
-						Finishing snapshots the week's metrics onto the review row. That row is the artefact —
-						the thing that makes monitoring work rather than just happen.
+						This saves this week's numbers so you can compare weeks later. After saving, you are
+						done.
 					</p>
 					<form method="POST" action="?/complete" use:enhance>
 						<button class="primary" type="submit">Finish review</button>
 					</form>
 				{:else}
 					<p class="lede">
-						One line, one other human. Reporting progress to someone was a moderator in the
-						monitoring meta-analysis, and it costs nothing.
+						Copy this line and send it to one person. Saying it out loud is what makes it stick.
 					</p>
 
 					<div class="card oneliner">
@@ -555,7 +559,7 @@
 								<td>
 									{#if data.review.bufferWeeksX100 === null}
 										<span class="pending">
-											needs weekly take-home — set it with
+											needs weekly take-home. Set it with:
 											<code>npm run db:init -- --take-home &lt;amount&gt;</code>
 										</span>
 									{:else}
@@ -570,11 +574,11 @@
 							<tr><th scope="row">Streak</th><td>{data.review.streakAtClose ?? 0} days</td></tr>
 							<tr>
 								<th scope="row">Funded</th>
-								<td><span class="pending">Phase 3 — needs the irregulars engine</span></td>
+									<td><span class="pending">Coming later</span></td>
 							</tr>
 							<tr>
 								<th scope="row">Save rate</th>
-								<td><span class="pending">Phase 3 — needs income rows</span></td>
+									<td><span class="pending">Coming later</span></td>
 							</tr>
 						</tbody>
 					</table>

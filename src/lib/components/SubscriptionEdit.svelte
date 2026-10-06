@@ -91,7 +91,7 @@
 		</select>
 	</div>
 	<div class="field">
-		<label for="e-next-{sub.id}">Next charge</label>
+		<label for="e-next-{sub.id}">Billing date</label>
 		<input id="e-next-{sub.id}" name="nextChargeOn" type="date" value={sub.nextChargeOn} required />
 	</div>
 	<div class="field">
@@ -109,7 +109,7 @@
 		<div class="field">
 			<label for="e-cancel-{sub.id}">Cancel by</label>
 			<input id="e-cancel-{sub.id}" name="cancelByOn" type="date" value={sub.cancelByOn ?? ''} />
-			<span class="hint">Blank = the charge date.</span>
+			<span class="hint">Blank = the billing date.</span>
 		</div>
 		<div class="field">
 			<label for="e-lead-{sub.id}">Warn me</label>

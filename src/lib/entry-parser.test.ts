@@ -92,6 +92,22 @@ describe('parseEntry: routing order, most specific first (Spec §5.6)', () => {
 		expect(r).toMatchObject({ kind: 'existing_commitment', commitment: plan });
 	});
 
+	it("2. a DIFFERENT subscription shares only the generic word 'subscription' -> not a match, routes to new-commitment/ask flow", () => {
+		// Regression: 'udemy subscription' used to match the existing
+		// 'chatgpt subscription' because label words like 'subscription'
+		// matched any typed text that contained them (word.includes(tok)).
+		const chatgpt: KnownCommitment = {
+			id: 4,
+			kind: 'subscription',
+			label: 'chatgpt subscription',
+			vendor: null
+		};
+		const ctx = ctxWith([chatgpt]);
+		const r = parseEntry('udemy subscription 1000', ctx, PHP_MINOR_UNITS);
+		expect(r.kind).toBe('ask_kind'); // routed to ask, NOT the chatgpt commitment
+		expect(r).not.toHaveProperty('commitment');
+	});
+
 	it('3. a cadence word -> new_commitment, cadence read off which word matched', () => {
 		const cases: [string, 'weekly' | 'fortnightly' | 'monthly' | 'annual'][] = [
 			['netflix 549 monthly', 'monthly'],

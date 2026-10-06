@@ -182,8 +182,35 @@ function labelTokens(label: string): string[] {
 		.filter((t) => t.length >= 3);
 }
 
+/** Generic words every commitment label may share ("chatgpt subscription",
+ * "udemy subscription", "internet bill"). They can never be the reason two
+ * entries are the same commitment — if they were, "udemy subscription"
+ * would match the chatgpt bill, because `word.includes("subscription")`
+ * is true for both. Only distinctive tokens (vendor, brand, item) match. */
+const GENERIC_LABEL_TOKENS = new Set([
+	'subscription',
+	'subscriptions',
+	'bill',
+	'bills',
+	'monthly',
+	'weekly',
+	'yearly',
+	'annual',
+	'annually',
+	'fortnightly',
+	'plan',
+	'renewal',
+	'renews',
+	'payment'
+]);
+
+function labelTokensDistinct(label: string): string[] {
+	return labelTokens(label).filter((t) => !GENERIC_LABEL_TOKENS.has(t));
+}
+
 function matchesCommitment(word: string, c: KnownCommitment): boolean {
-	if (labelTokens(c.label).some((tok) => word.includes(tok))) return true;
+	// Distinctive label tokens only — see GENERIC_LABEL_TOKENS above.
+	if (labelTokensDistinct(c.label).some((tok) => word.includes(tok))) return true;
 	if (c.vendor && word.includes(c.vendor.toLowerCase())) return true;
 	return false;
 }

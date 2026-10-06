@@ -10,6 +10,8 @@ import {
 	listIncomeSources
 } from '$lib/server/income';
 import { parseMoney } from '$lib/money';
+import * as panels from '$lib/server/panel-forms';
+import { mapResult } from '$lib/server/panel-forms';
 import {
 	IouRequired,
 	assertBalance,
@@ -23,6 +25,9 @@ import {
 import { checklist, ensureAllocations, executeAllocation } from '$lib/server/allocations';
 import { PHASES, acceptProposal, declineProposal, phaseStatus, setPhase } from '$lib/server/phases';
 import type { PageServerLoad } from './$types';
+
+/** The six fixed purposes (schema `account.kind`). Never a seventh. */
+const ACCOUNT_KINDS = ['inflow', 'bills', 'spend', 'irregulars', 'buffer', 'grow'] as const;
 
 export const load: PageServerLoad = ({ locals }) => {
 	const settings = loadSettings(locals.userId);
@@ -120,8 +125,28 @@ export const actions: Actions = {
 		if (!Number.isInteger(accountId)) return fail(400, { error: 'Unknown account.' });
 		if (balanceMinor === null) return fail(400, { error: 'Enter the balance as it reads.' });
 
-		assertBalance(locals.userId, accountId, balanceMinor, localToday(settings.timezone));
+		try {
+			assertBalance(locals.userId, accountId, balanceMinor, localToday(settings.timezone));
+		} catch (err) {
+			// The reservation guard (A3.2) speaks plainly; pass its words on.
+			return fail(409, { error: err instanceof Error ? err.message : 'Could not save the balance.', accountId });
+		}
 		redirect(303, '/accounts');
+	},
+
+	/**
+	 * Add an account (Spec A2). `kind` is one of the six fixed purposes, never
+	 * a new one the user types — the buckets are the method, not a category
+	 * list. Validation failures echo every entered field back so re-rendering
+	 * the form loses nothing (Spec A2: "validation errors retain entered
+	 * values").
+	 */
+	addAccount: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
+		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
+
+		const form = await request.formData();
+		return mapResult(await panels.openAccount(locals.userId, form, settings), '/accounts');
 	},
 
 	/**
@@ -134,26 +159,7 @@ export const actions: Actions = {
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
-		const amountMinor = parseMoney(String(form.get('amount') ?? ''), settings.minorUnits);
-		if (amountMinor === null || amountMinor <= 0) {
-			return fail(400, { error: 'Enter an amount above zero.' });
-		}
-
-		try {
-			recordTransfer(locals.userId, {
-				fromAccountId: Number(form.get('fromAccountId')),
-				toAccountId: Number(form.get('toAccountId')),
-				amountMinor,
-				movedOn: String(form.get('movedOn') || localToday(settings.timezone)),
-				iouReason: String(form.get('iouReason') ?? ''),
-				iouRepayBy: String(form.get('iouRepayBy') ?? '')
-			});
-		} catch (err) {
-			if (err instanceof IouRequired) return fail(422, { error: err.message, field: 'iouReason' });
-			return fail(400, { error: err instanceof Error ? err.message : 'Transfer failed.' });
-		}
-
-		redirect(303, '/accounts');
+		return mapResult(await panels.transfer(locals.userId, form, settings), '/accounts');
 	},
 
 	repayIou: async ({ request, locals }) => {

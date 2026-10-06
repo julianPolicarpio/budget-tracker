@@ -232,8 +232,73 @@ describe('weekly and fortnightly cadences advance by days, not fractional months
 			nextChargeOn: '2027-08-20',
 			cancelByOn: '2027-08-20'
 		});
-		m.subs.keepSubscription(1, id, '2027-08-27');
+		/*
+		 * Kept on the 21st, the day after the charge, rather than on the 27th.
+		 * The intent here is the cadence (seven days, not a fractional month,
+		 * Spec §5.1) and the old date sat exactly on the day one step lands on,
+		 * which made it also an assertion about the today-boundary. Keep now
+		 * advances past a charge dated today, because leaving one there would
+		 * read "due today" forever with no way to clear it, so the two
+		 * questions are separated: this test owns the cadence, and the
+		 * catch-up tests below own the boundary.
+		 */
+		m.subs.keepSubscription(1, id, '2027-08-21');
 		expect(m.subs.getSubscription(1, id)!.nextChargeOn).toBe('2027-08-27');
+	});
+
+	/*
+	 * Catching up after being away.
+	 *
+	 * Keep used to advance exactly one cadence step from the scheduled date, so
+	 * a subscription you had not touched in months landed on another date in
+	 * the past. You would press Keep, watch nothing appear to happen, and have
+	 * to press it once per missed cycle with nothing telling you so. Today
+	 * handles its own lateness with a catch-up row per missed day; this is the
+	 * same obligation on the other screen.
+	 */
+	it('rolls a months-late subscription all the way to a future charge, in one press', () => {
+		const id = m.subs.createSubscription(1, {
+			...GOOGLE,
+			label: 'Months late',
+			cadence: 'monthly',
+			nextChargeOn: '2027-05-10',
+			cancelByOn: '2027-05-10'
+		});
+
+		const skipped = m.subs.keepSubscription(1, id, '2027-08-23');
+
+		expect(m.subs.getSubscription(1, id)!.nextChargeOn).toBe('2027-09-10');
+		expect(skipped).toBe(4);
+	});
+
+	it('reports no skipped cycles when the charge is already in the future', () => {
+		const id = m.subs.createSubscription(1, {
+			...GOOGLE,
+			label: 'Not late',
+			cadence: 'monthly',
+			nextChargeOn: '2027-12-01',
+			cancelByOn: '2027-12-01'
+		});
+
+		const skipped = m.subs.keepSubscription(1, id, '2027-08-23');
+
+		expect(m.subs.getSubscription(1, id)!.nextChargeOn).toBe('2027-12-01');
+		expect(skipped).toBe(0);
+	});
+
+	it('advances past a charge dated exactly today, so Keep never leaves it due now', () => {
+		const id = m.subs.createSubscription(1, {
+			...GOOGLE,
+			label: 'Due today',
+			cadence: 'monthly',
+			nextChargeOn: '2027-08-23',
+			cancelByOn: '2027-08-23'
+		});
+
+		const skipped = m.subs.keepSubscription(1, id, '2027-08-23');
+
+		expect(m.subs.getSubscription(1, id)!.nextChargeOn).toBe('2027-09-23');
+		expect(skipped).toBe(1);
 	});
 });
 

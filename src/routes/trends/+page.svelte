@@ -1,5 +1,5 @@
 <script lang="ts">
-	import ReviewNav from '$lib/components/ReviewNav.svelte';
+	import NavStrip from '$lib/components/NavStrip.svelte';
 	import { formatMoney } from '$lib/money';
 	import type { PageData } from './$types';
 
@@ -23,35 +23,35 @@
 			label: 'Log adherence',
 			target: '>85% by week 4',
 			format: (v: number) => `${Math.round(v / 100)}%`,
-			hint: 'Below 70% means the ritual is misplaced — move the cue, do not try harder.'
+			hint: 'Below 70% means the routine is not landing. Move the cue, do not try harder.'
 		},
 		{
 			key: 'unplannedRatioBp',
-			label: 'Impulse spending',
+			label: 'Unplanned spending',
 			target: 'falling, <25% by month 3',
 			format: (v: number) => `${Math.round(v / 100)}%`,
-			hint: 'The direct measure of exceptional-expense blindness losing its grip on you.'
+			hint: 'How much of what you spent was not planned.'
 		},
 		{
 			key: 'bufferWeeksX100',
 			label: 'Weeks covered',
 			target: 'rising to 6.0',
 			format: (v: number) => (v / 100).toFixed(1),
-			hint: 'Six weeks is the empirically derived threshold for the shock that actually happens.'
+			hint: 'Six weeks of buffer covers the kind of shock that actually happens.'
 		},
 		{
 			key: 'coverageRatioBp',
 			label: 'Funded',
 			target: '≥1.0 and staying there',
 			format: (v: number) => `${(v / 10_000).toFixed(2)}×`,
-			hint: 'Below 1.0 is the leading indicator that your Emergency fund is about to be raided.'
+			hint: 'Below 1.0 means your emergency fund is about to run dry.'
 		},
 		{
 			key: 'saveRateBp',
 			label: 'Save rate',
 			target: 'rising',
 			format: (v: number) => `${(v / 100).toFixed(1)}%`,
-			hint: 'Needs income rows — a subsystem the roadmap never scheduled.'
+			hint: 'Needs income rows, which are not recorded yet.'
 		}
 	] as const;
 
@@ -102,20 +102,17 @@
 	<main class="sheet"><p class="eyebrow">Not set up</p></main>
 {:else}
 	<main class="sheet">
+		<NavStrip />
+
 		<header class="masthead">
 			<div>
-				<p class="eyebrow">Trends</p>
-				<h1>Whether it is actually working</h1>
+				<h1>Trends</h1>
+				<p class="lede">
+					How your spending changed over time. These five come straight off your completed weekly
+					reviews, so they fill in as you do them rather than being recalculated here.
+				</p>
 			</div>
 		</header>
-
-		<ReviewNav />
-
-		<p class="lede">
-			Do not measure success by "did I stick to the budget". These five are real behavioural
-			quantities, and they come off your completed weekly reviews rather than being recomputed — the
-			artefact is the record.
-		</p>
 
 		{#if data.reviewCount === 0}
 			<p class="empty">
@@ -174,7 +171,7 @@
 
 			<!-- Category heatmap: sequential blue, one hue, magnitude not identity. -->
 			<section class="block">
-				<p class="eyebrow">Category drift — 8 categories × {data.heatmap.length} weeks</p>
+				<p class="eyebrow">Category drift: 8 categories × {data.heatmap.length} weeks</p>
 				<div class="scroll">
 					<table class="heat">
 						<thead>
@@ -205,7 +202,7 @@
 					</table>
 				</div>
 				<p class="muted">
-					Trip spending is excluded here as it is everywhere else — two weeks at four times normal
+					Trip spending is excluded here as it is everywhere else. Two weeks at four times normal
 					spend would otherwise smear this into uselessness for a quarter.
 				</p>
 			</section>
@@ -247,8 +244,8 @@
 					</table>
 				</div>
 				<p class="muted">
-					{data.sharedCount} of {data.reviewCount} reviews were sent to someone. Reporting progress was
-					a moderator in the monitoring meta-analysis, and it is the free half.
+					{data.sharedCount} of {data.reviewCount} reviews were sent to someone. Reporting your
+					progress is the free half of the habit.
 				</p>
 			</section>
 		{/if}
@@ -341,6 +338,8 @@
 	}
 
 	.scroll {
+		position: relative;
+		min-width: 0;
 		overflow-x: auto;
 	}
 

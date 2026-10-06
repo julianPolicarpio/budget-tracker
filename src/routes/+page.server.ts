@@ -13,8 +13,12 @@ import {
 import { addDays, localToday } from '$lib/server/clock';
 import { activeTrip, localToHome, tripSpentMinor } from '$lib/server/trips';
 import { tripDailyFigure } from '$lib/allowance';
-import { addWaitItem, resolveWaitItem } from '$lib/server/rules';
+import { resolveWaitItem } from '$lib/server/rules';
+import * as panels from '$lib/server/panel-forms';
+import type { PanelResult } from '$lib/server/panel-forms';
+import type { Settings } from '$lib/server/db/schema';
 import { isCategory } from '$lib/categories';
+import { setupTodo } from '$lib/server/setup-status';
 import { parseMoney } from '$lib/money';
 import {
 	answerWord,
@@ -27,6 +31,8 @@ import {
 	getSubscription,
 	restoreSubscription
 } from '$lib/server/subscriptions';
+import { recordArrival } from '$lib/server/arrivals';
+import { recordRefund } from '$lib/server/refunds';
 import type { PageServerLoad } from './$types';
 
 // Which commands the empty states should quote. Telling a containerised user
@@ -37,24 +43,46 @@ const inContainer = existsSync('/.dockerenv') || process.env.SPLIT_IN_CONTAINER 
 export const load: PageServerLoad = ({ locals }) => {
 	const ctx = todayContext(locals.userId);
 	if (!ctx) return { view: null, hasPeriod: false, inContainer, userId: locals.userId };
+
+	// What the "Money landed" / "Money back" forms need (account/refund-
+	// candidate pickers) now comes from the root layout's shared
+	// `actionContext` (`$lib/actions/context.ts`, Task 2c) rather than a
+	// second copy of the same queries here — Spec A6: "Do not... duplicate
+	// accounting code across routes."
 	return {
 		view: ctx.view,
 		hasPeriod: ctx.period !== null,
 		inContainer,
-		// The offline outbox (Spec §6, task A5) namespaces every queued row by
-		// this — never a balance or anything else about the account, just the
-		// id needed so a queued entry can never flush under a different
-		// signed-in session (see `src/lib/outbox.ts`'s module doc).
 		userId: locals.userId,
-		// The typed-entry router's context (Spec §5.6-§5.7, task A4a), fetched
-		// once so the resolution line runs entirely in the browser — no
-		// network round trip per keystroke. Refreshed automatically after
-		// every save, because `use:enhance`'s `update()` reruns this load.
+		setupTodo: setupTodo(locals.userId),
 		parseContext: buildParseContext(locals.userId)
 	};
 };
 
+type QuickOperation = (
+	userId: number,
+	form: FormData,
+	settings: Settings
+) => Promise<PanelResult>;
+
+async function saveQuick(request: Request, userId: number, operation: QuickOperation) {
+	const settings = loadSettings(userId);
+	if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
+	const result = await operation(userId, await request.formData(), settings);
+	if ('fail' in result) return fail(result.fail[0], result.fail[1]);
+	return result.data;
+}
+
 export const actions: Actions = {
+	transferMoney: ({ request, locals }) => saveQuick(request, locals.userId, panels.transfer),
+	fundPlannedExpense: ({ request, locals }) => saveQuick(request, locals.userId, panels.fund),
+	createPlannedExpense: ({ request, locals }) => saveQuick(request, locals.userId, panels.createPlanned),
+	declareTrip: ({ request, locals }) => saveQuick(request, locals.userId, panels.declare),
+	quickAddBill: ({ request, locals }) => saveQuick(request, locals.userId, panels.quickAddBill),
+	addDebt: ({ request, locals }) => saveQuick(request, locals.userId, panels.addDebt),
+	openAccount: ({ request, locals }) => saveQuick(request, locals.userId, panels.openAccount),
+	upsertRule: ({ request, locals }) => saveQuick(request, locals.userId, panels.upsertRule),
+
 	/** Log one discretionary purchase. The whole point of the app (F6). */
 	logTxn: async ({ request, locals }) => {
 		const settings = loadSettings(locals.userId);
@@ -227,6 +255,13 @@ export const actions: Actions = {
 				});
 			}
 			commitmentMode = rawCommitmentMode;
+			if (commitmentMode !== 'varies') {
+				return fail(400, {
+					field: 'text',
+					error: 'Open the bill form to choose a billing date before saving.',
+					rawText: text
+				});
+			}
 		}
 
 		let result;
@@ -274,14 +309,9 @@ export const actions: Actions = {
 	addWait: async ({ request, locals }) => {
 		const settings = loadSettings(locals.userId);
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
-
-		const form = await request.formData();
-		const label = String(form.get('label') ?? '').trim();
-		if (!label) return fail(400, { error: 'Name the thing you want.' });
-
-		const raw = String(form.get('amount') ?? '').trim();
-		addWaitItem(locals.userId, label, raw ? parseMoney(raw, settings.minorUnits) : null);
-		return { waiting: true };
+		const result = await panels.addWait(locals.userId, await request.formData(), settings);
+		if ('fail' in result) return fail(result.fail[0], result.fail[1]);
+		return result.data;
 	},
 
 	/** The 72 hours are up: buy it guilt-free, or let it go. */
@@ -491,5 +521,105 @@ export const actions: Actions = {
 		if (!Number.isInteger(id)) return fail(400, { error: 'Unknown subscription.' });
 		restoreSubscription(locals.userId, id);
 		return { restoredSubId: id };
+	},
+
+	/**
+	 * Money arrived (A6, op 2). An arrival is not income reporting —
+	 * it moves real money into a bucket now. The schedule (\`income\` tab)
+	 * never advances: arrivals are records of what actually happened.
+	 */
+	landMoney: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
+		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
+
+		const form = await request.formData();
+		const rawAmount = String(form.get('amount') ?? '');
+		const accountId = Number(form.get('accountId') ?? '');
+		const note = String(form.get('note') ?? '').trim() || null;
+		const clientUuid = String(form.get('clientUuid') ?? '') || null;
+
+		const amountMinor = parseMoney(rawAmount, settings.minorUnits);
+		if (amountMinor === null) {
+			return fail(400, {
+				field: 'amount',
+				error: 'Enter an amount like 15000.',
+				rawAmount
+			});
+		}
+		if (!Number.isInteger(accountId)) {
+			return fail(400, {
+				field: 'accountId',
+				error: 'Pick which account the money landed in.',
+				rawAmount
+			});
+		}
+
+		const now = new Date();
+		try {
+			recordArrival(locals.userId, {
+				amountMinor,
+				accountId,
+				arrivedOn: localToday(settings.timezone, now),
+				note,
+				clientUuid
+			});
+		} catch (err) {
+			const message = err instanceof Error ? err.message : '';
+			// A repeat of the same client_uuid is a double-submit, not an error.
+			if (message.includes('UNIQUE')) return { saved: true };
+			return fail(409, { field: 'accountId', error: message, rawAmount });
+		}
+		return { landed: true };
+	},
+
+	/**
+	 * Money refunded (A6, op 8). A refund rides on an existing expense:
+	 * spending goes down on that category, the money lands in a chosen
+	 * bucket, and the schedule is never touched.
+	 */
+	refundMoney: async ({ request, locals }) => {
+		const settings = loadSettings(locals.userId);
+		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
+
+		const form = await request.formData();
+		const originalTxnId = Number(form.get('originalTxnId') ?? '');
+		const rawAmount = String(form.get('amount') ?? '');
+		const accountId = Number(form.get('accountId') ?? '');
+		const note = String(form.get('note') ?? '').trim() || null;
+		const clientUuid = String(form.get('clientUuid') ?? '') || null;
+
+		const amountMinor = parseMoney(rawAmount, settings.minorUnits);
+		if (!Number.isInteger(originalTxnId)) {
+			return fail(400, {
+				error: "That expense isn't in the pick list anymore — refresh the page."
+			});
+		}
+		if (amountMinor === null) {
+			return fail(400, { field: 'amount', error: 'Enter an amount like 15000.', rawAmount });
+		}
+		if (!Number.isInteger(accountId)) {
+			return fail(400, {
+				field: 'accountId',
+				error: 'Pick which account the money landed in.',
+				rawAmount
+			});
+		}
+
+		const now = new Date();
+		try {
+			recordRefund(locals.userId, {
+				originalTxnId,
+				amountMinor,
+				accountId,
+				refundedOn: localToday(settings.timezone, now),
+				note,
+				clientUuid
+			});
+		} catch (err) {
+			const message = err instanceof Error ? err.message : '';
+			if (message.includes('UNIQUE')) return { saved: true };
+			return fail(409, { field: 'amount', error: message, rawAmount });
+		}
+		return { refunded: true };
 	}
 };

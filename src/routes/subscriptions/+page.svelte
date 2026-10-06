@@ -4,7 +4,7 @@
 	 * opposite of Today by design — this is a screen you open deliberately,
 	 * once a week, to make decisions on.
 	 */
-	import ReviewNav from '$lib/components/ReviewNav.svelte';
+	import NavStrip from '$lib/components/NavStrip.svelte';
 	import SubscriptionEdit from '$lib/components/SubscriptionEdit.svelte';
 	import { enhance } from '$app/forms';
 	import { CATEGORIES } from '$lib/categories';
@@ -100,14 +100,18 @@
 
 <svelte:head><title>Bills &amp; subscriptions · Split</title></svelte:head>
 
-<main class="shell">
-	<ReviewNav />
+<main class="sheet">
+	<NavStrip />
 
 	{#if !data.ready}
 		<p class="empty">Split is not set up yet.</p>
 	{:else}
 		<header class="head">
 			<h1>Bills &amp; subscriptions</h1>
+			<p class="lede">
+				Look down the list and cancel what you stopped using. The big number is what the current
+				list costs per year if nothing changes.
+			</p>
 			<!--
 				The headline is the ANNUAL figure, not the monthly one. ₱285 a month
 				is a number you wave away; ₱3,420 a year is a number you argue with.
@@ -135,20 +139,49 @@
 			<p class="error" role="alert">{form.error}</p>
 		{/if}
 
+		<!--
+			Only when more than one cycle went by. Skipping a single charge is the
+			ordinary case and needs no commentary; skipping four means the date
+			jumped months, and a silent jump of that size looks exactly like the
+			bug where Keep appeared to do nothing. The second sentence is there
+			because Keep is not a payment: nothing on this screen records that
+			money moved, and saying so is better than letting the figure above
+			imply it did.
+		-->
+		{#if form?.kept && typeof form.skipped === 'number' && form.skipped > 1}
+			<p class="ok" role="status">
+				Moved past {form.skipped} charges to the next one still ahead. Nothing was recorded as paid.
+			</p>
+		{/if}
+
 		<form method="POST" action="?/quickAdd" use:enhance class="quick">
-			<input name="label" placeholder="Home wifi" required aria-label="What is it" />
-			<input
-				name="amount"
-				inputmode="decimal"
-				placeholder="750"
-				required
-				aria-label="Charge amount"
-			/>
-			<select name="cadence" aria-label="How often">
-				{#each Object.entries(CADENCE_LABELS) as [key, label] (key)}
-					<option value={key}>{label}</option>
-				{/each}
-			</select>
+			<label class="quick-name"
+				>Name
+				<input name="label" placeholder="Home wifi" required />
+			</label>
+			<label
+				>Charge amount
+				<input
+					name="amount"
+					inputmode="decimal"
+					placeholder="750"
+					required
+					aria-label="Charge amount"
+				/>
+			</label>
+			<label
+				>How often
+					<select name="cadence" aria-label="How often" required>
+						<option value="" disabled selected>Choose how often</option>
+						{#each Object.entries(CADENCE_LABELS) as [key, label] (key)}
+							<option value={key}>{label}</option>
+						{/each}
+					</select>
+				</label>
+				<label>
+					Billing date
+					<input type="date" name="nextChargeOn" aria-label="Billing date" required />
+				</label>
 			<label class="free">
 				<span>Free until</span>
 				<input type="date" name="freeUntil" aria-label="Free trial ends on" />
@@ -167,160 +200,165 @@
 				works if every row on it is a real question.
 			-->
 			<h2 class="sub">Non-negotiable</h2>
-			<table class="grid">
-				<thead>
-					<tr>
-						<th scope="col">Commitment</th>
-						<th scope="col" class="num">Charge</th>
-						<th scope="col" class="num">Per year</th>
-						<th scope="col">Next</th>
-						<th scope="col"><span class="sr-only">Actions</span></th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each data.essential as sub (sub.id)}
+			<div class="scroll">
+				<table class="grid">
+					<thead>
 						<tr>
-							<th scope="row">
-								<span class="label">{sub.label}</span>
-								{#if sub.vendor}<span class="vendor">{sub.vendor}</span>{/if}
-							</th>
-							<td class="num">
-								{money(sub.amountMinor)}
-								<span class="cadence">{CADENCE_LABELS[sub.cadence]}</span>
-							</td>
-							<td class="num strong">{money(annualise(sub))}</td>
-							<td>{dayLabel(sub.nextChargeOn)}</td>
-							<td>
-								<div class="actions">
-									<button
-										class="mini"
-										onclick={() => (editingId = editingId === sub.id ? null : sub.id)}
-									>
-										Edit
-									</button>
-									<form method="POST" action="?/cancel" use:enhance>
-										<input type="hidden" name="id" value={sub.id} />
-										<button type="submit" class="mini danger">Ended it</button>
-									</form>
-								</div>
-							</td>
+							<th scope="col">Commitment</th>
+							<th scope="col" class="num">Charge</th>
+							<th scope="col" class="num">Per year</th>
+							<th scope="col">Next</th>
+							<th scope="col"><span class="sr-only">Actions</span></th>
 						</tr>
-						{#if editingId === sub.id}
-							<tr class="editor">
-								<td colspan="5">
-									<SubscriptionEdit {sub} {minorUnits} {symbol} onDone={() => (editingId = null)} />
+					</thead>
+					<tbody>
+						{#each data.essential as sub (sub.id)}
+							<tr>
+								<th scope="row">
+									<span class="label">{sub.label}</span>
+									{#if sub.vendor}<span class="vendor">{sub.vendor}</span>{/if}
+								</th>
+								<td class="num">
+									{money(sub.amountMinor)}
+									<span class="cadence">{CADENCE_LABELS[sub.cadence]}</span>
+								</td>
+								<td class="num strong">{money(annualise(sub))}</td>
+								<td>{dayLabel(sub.nextChargeOn)}</td>
+								<td>
+									<div class="actions">
+										<button
+											class="mini"
+											onclick={() => (editingId = editingId === sub.id ? null : sub.id)}
+										>
+											Edit
+										</button>
+										<form method="POST" action="?/cancel" use:enhance>
+											<input type="hidden" name="id" value={sub.id} />
+											<button type="submit" class="mini danger">Cancelled</button>
+										</form>
+									</div>
 								</td>
 							</tr>
-						{/if}
-					{/each}
-				</tbody>
-			</table>
-			<h2 class="sub">Cancellable</h2>
+							{#if editingId === sub.id}
+								<tr class="editor">
+									<td colspan="5">
+										<SubscriptionEdit
+											{sub}
+											{minorUnits}
+											{symbol}
+											onDone={() => (editingId = null)}
+										/>
+									</td>
+								</tr>
+							{/if}
+						{/each}
+					</tbody>
+				</table>
+			</div>
+			<h2 class="sub">Ask about these</h2>
 		{/if}
 
 		{#if data.rows.length === 0}
 			<p class="empty">
-				Nothing cancellable recorded. The dangerous subscription is always the one you forgot you
-				had.
+				Nothing to ask about yet. Add a subscription above and it will wait here until you decide.
 			</p>
 		{:else}
-			<table class="grid">
-				<thead>
-					<tr>
-						<th scope="col">Subscription</th>
-						<th scope="col" class="num">Charge</th>
-						<th scope="col" class="num">Per year</th>
-						<th scope="col">Next</th>
-						<th scope="col">Deadline</th>
-						<th scope="col">Last used</th>
-						<th scope="col"><span class="sr-only">Decision</span></th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each data.rows as row (row.sub.id)}
-						{@const days = row.sub.cancelByOn ? daysUntil(row.sub.cancelByOn, data.today) : null}
+			<div class="scroll">
+				<table class="grid">
+					<thead>
 						<tr>
-							<th scope="row">
-								<span class="label">{row.sub.label}</span>
-								{#if row.sub.vendor}<span class="vendor">{row.sub.vendor}</span>{/if}
-								{#if row.sub.trialEndsOn}<span class="tag trial">free trial</span>{/if}
-							</th>
-							<td class="num">
-								{money(row.sub.amountMinor)}
-								<span class="cadence">{CADENCE_LABELS[row.sub.cadence]}</span>
-							</td>
-							<td class="num strong">{money(row.annualisedMinor)}</td>
-							<td>{dayLabel(row.sub.nextChargeOn)}</td>
-							<td>
-								{#if row.sub.cancelByOn && days !== null}
-									{dayLabel(row.sub.cancelByOn)}
-									<span class="cadence" class:soon={days <= row.sub.leadDays}>
-										{days < 0 ? 'passed' : days === 0 ? 'today' : `in ${days} days`}
-									</span>
-								{:else}
-									—
-								{/if}
-							</td>
-							<td>
-								{#if row.stale}
-									<!-- Spec §267: used in the last 30 days? If no, cancel now. -->
-									<span class="tag stale" title="Not used in the last 30 days">
-										{row.staleDays === null ? 'never' : `${row.staleDays}d ago`}
-									</span>
-								{:else}
-									{row.staleDays}d ago
-								{/if}
-							</td>
-							<td>
-								<!--
+							<th scope="col">Subscription</th>
+							<th scope="col" class="num">Charge</th>
+							<th scope="col" class="num">Per year</th>
+							<th scope="col">Next</th>
+							<th scope="col">Deadline</th>
+							<th scope="col">Last used</th>
+							<th scope="col"><span class="sr-only">Decision</span></th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each data.rows as row (row.sub.id)}
+							{@const days = row.sub.cancelByOn ? daysUntil(row.sub.cancelByOn, data.today) : null}
+							<tr>
+								<th scope="row">
+									<span class="label">{row.sub.label}</span>
+									{#if row.sub.vendor}<span class="vendor">{row.sub.vendor}</span>{/if}
+									{#if row.sub.trialEndsOn}<span class="tag trial">free trial</span>{/if}
+								</th>
+								<td class="num">
+									{money(row.sub.amountMinor)}
+									<span class="cadence">{CADENCE_LABELS[row.sub.cadence]}</span>
+								</td>
+								<td class="num strong">{money(row.annualisedMinor)}</td>
+								<td>{dayLabel(row.sub.nextChargeOn)}</td>
+								<td>
+									{#if row.sub.cancelByOn && days !== null}
+										{dayLabel(row.sub.cancelByOn)}
+										<span class="cadence" class:soon={days <= row.sub.leadDays}>
+											{days < 0 ? 'passed' : days === 0 ? 'today' : `in ${days} days`}
+										</span>
+									{:else}
+										—
+									{/if}
+								</td>
+								<td>
+									{#if row.stale}
+										<!-- Spec §267: used in the last 30 days? If no, cancel now. -->
+										<span class="tag stale" title="Not used in the last 30 days">
+											{row.staleDays === null ? 'never' : `${row.staleDays}d ago`}
+										</span>
+									{:else}
+										{row.staleDays}d ago
+									{/if}
+								</td>
+								<td>
+									<!--
 									The flex row is a div, not the cell itself: `display: flex`
 									on a <td> drops it out of the table layout and collapses
 									the whole grid's column widths.
 								-->
-								<div class="actions">
-									<button
-										class="mini"
-										onclick={() => (editingId = editingId === row.sub.id ? null : row.sub.id)}
-									>
-										Edit
-									</button>
-									<form method="POST" action="?/used" use:enhance>
-										<input type="hidden" name="id" value={row.sub.id} />
-										<button type="submit" class="mini">Used it</button>
-									</form>
-									<form method="POST" action="?/keep" use:enhance>
-										<input type="hidden" name="id" value={row.sub.id} />
-										<button type="submit" class="mini">Keep</button>
-									</form>
-									<form method="POST" action="?/cancel" use:enhance>
-										<input type="hidden" name="id" value={row.sub.id} />
-										<button type="submit" class="mini danger">Cancelled it</button>
-									</form>
-								</div>
-							</td>
-						</tr>
-						{#if editingId === row.sub.id}
-							<tr class="editor">
-								<td colspan="7">
-									<SubscriptionEdit
-										sub={row.sub}
-										{minorUnits}
-										{symbol}
-										onDone={() => (editingId = null)}
-									/>
+									<div class="actions">
+										<button
+											class="mini"
+											onclick={() => (editingId = editingId === row.sub.id ? null : row.sub.id)}
+										>
+											Edit
+										</button>
+										<form method="POST" action="?/used" use:enhance>
+											<input type="hidden" name="id" value={row.sub.id} />
+											<button type="submit" class="mini">Used it</button>
+										</form>
+										<form method="POST" action="?/keep" use:enhance>
+											<input type="hidden" name="id" value={row.sub.id} />
+											<button type="submit" class="mini">Keep</button>
+										</form>
+										<form method="POST" action="?/cancel" use:enhance>
+											<input type="hidden" name="id" value={row.sub.id} />
+											<button type="submit" class="mini danger">Cancelled</button>
+										</form>
+									</div>
 								</td>
 							</tr>
-						{/if}
-					{/each}
-				</tbody>
-			</table>
+							{#if editingId === row.sub.id}
+								<tr class="editor">
+									<td colspan="7">
+										<SubscriptionEdit
+											sub={row.sub}
+											{minorUnits}
+											{symbol}
+											onDone={() => (editingId = null)}
+										/>
+									</td>
+								</tr>
+							{/if}
+						{/each}
+					</tbody>
+				</table>
+			</div>
 
 			<p class="rule">
-				<strong
-					>If a renewal notice arrives, decide right then — keep or cancel — and never "decide
-					later."</strong
-				>
-				<span>Spec §374. "Later" is how ₱285 a month becomes permanent.</span>
+				<strong>When a renewal notice arrives, decide right then: keep it, or cancel it.</strong>
+				<span>Saying you will decide later is how a small bill becomes permanent.</span>
 			</p>
 		{/if}
 
@@ -353,7 +391,7 @@
 			nothing until "Add it" is pressed.
 		-->
 		<button class="disclose" onclick={() => (showPaste = !showPaste)} aria-expanded={showPaste}>
-			{showPaste ? '− Close' : '+ Paste a trial confirmation'}
+			{showPaste ? '− Close' : '+ Add a trial from a confirmation email'}
 		</button>
 
 		{#if showPaste}
@@ -384,7 +422,7 @@
 							<label for="pl-label">What is it</label>
 							<input id="pl-label" name="label" bind:value={pasteLabel} required />
 							{#if !pasteLabel}
-								<span class="hint ask">Could not read the name — type it.</span>
+								<span class="hint ask">Could not read the name, so type it.</span>
 							{/if}
 						</div>
 						<div class="field">
@@ -397,11 +435,11 @@
 								required
 							/>
 							{#if !pasteAmount}
-								<span class="hint ask">Could not read the price — enter it.</span>
+								<span class="hint ask">Could not read the price, so enter it.</span>
 							{/if}
 						</div>
 						<div class="field">
-							<label for="pl-cadence">Bills</label>
+							<label for="pl-cadence">How often</label>
 							<select id="pl-cadence" name="cadence" bind:value={pasteCadence} required>
 								<option value="" disabled>— pick one —</option>
 								{#each Object.entries(CADENCE_LABELS) as [key, label] (key)}
@@ -409,19 +447,19 @@
 								{/each}
 							</select>
 							{#if !pasteCadence}
-								<span class="hint ask">Could not read how often it bills — pick one.</span>
+								<span class="hint ask">Could not read how often it bills, so pick one.</span>
 							{/if}
 						</div>
 						<div class="field">
 							<label for="pl-date">Converts on</label>
 							<input id="pl-date" name="trialEndsOn" type="date" bind:value={pasteDate} required />
 							{#if !pasteDate}
-								<span class="hint ask">Could not read the date — give it.</span>
+								<span class="hint ask">Could not read the date, so enter it.</span>
 							{/if}
 						</div>
 						{#if pasteTrialDays !== null}
 							<p class="hint wide">
-								{pasteTrialDays}-day trial — the reminder is timed off that, not a flat 30 days.
+								{pasteTrialDays}-day trial. The reminder is timed to that, not to a flat 30 days.
 							</p>
 						{/if}
 						<button type="submit" class="save">Add it</button>
@@ -461,23 +499,23 @@
 					</select>
 				</div>
 				<div class="field">
-					<label for="nextChargeOn">First / next charge</label>
+					<label for="nextChargeOn">Billing date</label>
 					<input id="nextChargeOn" name="nextChargeOn" type="date" required />
 				</div>
 
 				<label class="check">
 					<input type="checkbox" name="isTrial" value="1" bind:checked={isTrial} />
-					It's a free trial right now
+					It is a free trial right now
 				</label>
 				<label class="check">
 					<input type="checkbox" name="isEssential" value="1" />
-					Non-negotiable — never ask me to cancel it
+					Non-negotiable, never ask me to cancel it
 				</label>
 
 				<div class="field">
 					<label for="cancelByOn">Cancel by</label>
 					<input id="cancelByOn" name="cancelByOn" type="date" />
-					<span class="hint">Blank = the charge date.</span>
+						<span class="hint">Blank = the billing date.</span>
 				</div>
 				<div class="field">
 					<label for="leadDays">Warn me</label>
@@ -501,7 +539,11 @@
 				</div>
 				<div class="field wide">
 					<label for="note">Note</label>
-					<input id="note" name="note" placeholder="Cancel in Play → Subscriptions" />
+					<input
+						id="note"
+						name="note"
+						placeholder="In the Play Store: Payments and subscriptions"
+					/>
 				</div>
 
 				<button type="submit" class="save">Add it</button>
@@ -511,12 +553,6 @@
 </main>
 
 <style>
-	.shell {
-		max-width: 68rem;
-		margin: 0 auto;
-		padding: 1.5rem 1.25rem 4rem;
-	}
-
 	.head {
 		margin: 1.5rem 0 1.25rem;
 	}
@@ -588,10 +624,10 @@
 		font-variant-numeric: tabular-nums;
 	}
 
-	.quick {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
+	form.quick {
+		display: grid;
+		grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
+		align-items: end;
 		gap: 0.5rem;
 		margin: 0 0 1.5rem;
 		padding: 0.75rem;
@@ -599,13 +635,41 @@
 		border-radius: 0.5rem;
 	}
 
-	.quick input[name='label'] {
-		flex: 1 1 12rem;
+	.quick > label:not(.ess) {
+		display: flex;
+		flex-direction: column;
+		align-items: stretch;
+		gap: 0.375rem;
+		min-width: 0;
 	}
 
-	.quick input[name='amount'] {
-		width: 6rem;
-		text-align: right;
+	.quick input:not([type='checkbox']),
+	.quick select {
+		width: 100%;
+		min-width: 0;
+		min-height: 2.75rem;
+	}
+
+	.quick .ess {
+		align-self: center;
+		white-space: normal;
+	}
+
+	.quick button {
+		min-height: 2.75rem;
+	}
+
+	@media (max-width: 36rem) {
+		form.quick {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+
+		.quick-name,
+		.quick .free,
+		.quick .ess,
+		.quick button {
+			grid-column: 1 / -1;
+		}
 	}
 
 	.quick button {
@@ -649,6 +713,12 @@
 		font-weight: 400;
 		letter-spacing: 0.1em;
 		text-transform: uppercase;
+	}
+
+	.scroll {
+		position: relative;
+		min-width: 0;
+		overflow-x: auto;
 	}
 
 	.grid {
@@ -782,7 +852,7 @@
 		cursor: pointer;
 	}
 
-	.add {
+	form.add {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
 		gap: 0.875rem;

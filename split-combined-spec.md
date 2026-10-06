@@ -1,7 +1,7 @@
-# Split — Method & Build Spec
+# Longhand — Method & Build Spec
 
-**Doc version:** 1.0 — 2026-08-16
-**Status:** Pre-build. Everything here is a proposal, not a commitment.
+**Doc version:** 1.1, approved overhaul amendment added 2026-09-21 (original method: 2026-08-16).
+**Status:** Existing application with an approved, not-yet-implemented overhaul scope. The amendment below specifies the next work; it does not claim that the features already exist.
 
 ---
 
@@ -32,6 +32,162 @@ This is two documents in one, and the order matters.
 | **F1**–**F14**             | A numbered research finding in Method Part I |
 | **Method Part I**–**VIII** | A section of Part One                        |
 | **Spec §0**–**§14**        | A section of Part Two                        |
+
+---
+
+# Approved overhaul amendment (2026-09-21)
+
+## A0. Scope, precedence, and status
+
+User-approved direction: make every tab understandable by purpose, give Today quick access to recording and setup, and improve task-specific visualisation. This amendment is the implementation scope, not a completion report. It supersedes older UI restrictions that prevent the actions described here; it does not replace the behavioural method, existing accounting invariants, or unrelated deployment/authentication decisions. Implement in the order in A9, not as a simultaneous rewrite.
+
+The canonical file is this repository-root `split-combined-spec.md`. Older references to `docs/split-combined-spec.md` are stale. Retain existing routes initially; user-facing renaming does not require breaking URLs. Preserve useful existing capabilities and saved data unless a replacement is explicitly specified below.
+
+Non-negotiable constraints:
+- Today remains a calm daily screen: no account balances, category totals, precise remaining-spending amount, KPI strip, or dashboard of charts. Its daily guide stays a range.
+- No per-category spending budgets, bank sync, automatic bank transfers, or automated transaction import added by this overhaul.
+- Money remains integer minor units. Period changes create superseding records; logging income does not silently recalculate an open period's daily allowance. Preserve the existing allocation projection path and trip-currency rules.
+- Bank/e-wallet accounts describe where money is held. Purposes and planned expenses describe what it is reserved for. They must not be treated as interchangeable accounts or counted twice.
+- Retain the dark-primary direction, keyboard-first operation, and common page frame. Apply antislop during implementation; the spec's density rules take precedence over generic design advice.
+
+## A1. Purpose-first tabs
+
+Each tab must state its main task in one short sentence, make its primary action evident, and explain unfamiliar values where they appear. Secondary controls are disclosed when needed, not deleted.
+
+| Tab / existing route | Purpose and required change |
+| --- | --- |
+| Today `/` | Log daily spending and start quick actions. Keep spending entry directly accessible and preserve the daily ritual. Add the shared Actions entry point described in A2. |
+| Weekly review `/review` | Check the week and prepare for the next. Keep a guided sequence with plain-language explanations, relevant comparisons, and clear next steps. Distinguish recording a change from merely viewing a recommendation. |
+| Accounts `/accounts` | Update recorded balances and organise money. Distinguish accounts from purposes, transfers from income/spending, and corrections from new transactions. Show last-updated context and provide dedicated balance reconciliation. |
+| Planned expenses `/irregulars` | Prepare for expenses coming later. Replace the Big bills/Irregulars user-facing terminology, provide Add money per expense, and show cost, due date, assigned money, and what is still needed. |
+| Bills & subscriptions `/subscriptions` | See upcoming charges and decide what to keep. Clearly distinguish schedules, recorded payments, overdue items, and cancelled/paused plans. A due date is not proof that money was paid. |
+| Trips `/trips` | Plan a trip, track its spending, and record its final cost. Separate planned budget, money set aside, actual spending, and settlement. Preserve local-currency entry and isolation from ordinary spending metrics. |
+| Debt `/debt` | Track what is owed, record payments, and compare repayment options. Explain annual interest and minimum payments; show projection assumptions and limitations beside comparisons. |
+| Trends `/trends` | Understand changes over time. Put meaningful weekly comparisons and spending breakdowns ahead of unexplained metrics. Distinguish missing records from zero spending. |
+| Wishlist & rules `/rules` | Save a purchase to reconsider after the waiting period, and manage personal if-then rules. Keep both capabilities; make their separate purposes obvious. Preserve the 72-hour waiting rule. |
+
+## A2. Today and the shared Actions panel
+
+Provide a labelled Actions button on Today and an equivalent entry point on other tabs. Ordinary spending entry must not gain an extra step. Do not copy all management forms into the Today page or show the whole action catalogue permanently.
+
+The searchable panel uses stable, plain-language groups:
+
+| Group | Actions |
+| --- | --- |
+| Record money | Log spending; Record income; Transfer money; Record a payment; Record a refund |
+| Set money aside | Fund a planned expense; Move money between purposes |
+| Create a plan | Add a trip; Create a planned expense; Add a bill or subscription; Add a debt; Save a purchase for later |
+| Set up or adjust | Add an account; Set or change the spending budget; Update a recorded balance; Add or edit a personal rule |
+
+Choose the action first, then show the relevant form. Payment forms must distinguish a bill, debt, or other supported obligation rather than using an ambiguous subtraction. The relevant tab uses the same form and operation, prefilled with its selected item. Quick edits to an existing item use those same forms after selecting it.
+
+Interaction requirements:
+- Minimum required fields first; optional fields expandable. Context is specific to the chosen item, not a dashboard of unrelated figures.
+- Save returns to the originating page with a concrete confirmation and optional View item link. Do not redirect automatically to a management tab.
+- Creating a trip, planned expense, bill, or debt does not itself record a payment or transfer. Offer funding/payment as an explicit next action where appropriate.
+- A short dependent setup step, such as adding an account during a transfer, returns to the unfinished parent form without losing input. No stack of nested dialogs.
+- Desktop supports keyboard navigation, visible focus, Escape, and focus restoration. Small screens use a full-screen form when needed, with reachable controls and scrollable content.
+- Unsaved work is protected; validation errors retain entered values. Failed submissions show a retry path. Duplicate submissions cannot create duplicate financial records.
+- The no-balances rule applies to Today-hosted forms too: account selectors show names, not balance lists. Show entered amounts, plan costs/dates, and operation effects without leaking precise available-to-spend totals. Detailed balance reconciliation opens Accounts. Update a recorded balance from Today opens that dedicated workspace with the account preselected.
+- Setting a budget can show its entered amount, effective period, and resulting daily range; it must not show a precise current remaining-spending figure.
+- Bulk deletion, full reconciliation, and the full weekly review remain dedicated workflows. Today can link to them rather than compressing them into quick forms.
+
+Expected benefit is a hypothesis to validate: fewer navigation steps without slower ordinary logging or more recording mistakes. Do not describe it as a measured usability improvement before testing.
+
+## A3. Transfers, funding, and financial correctness
+
+### A3.1 Transfer between bank/e-wallet accounts
+
+Transfer money requires source, destination, amount, date, and optional fee/note. A BDO-to-GCash transfer creates one linked operation with equal principal leaving the source and entering the destination. It is neither income nor spending. Reject identical source/destination accounts and invalid amounts. A fee is a separate linked spending amount with an explicit paying account, defaulted visibly to the source. Record both sides and any fee atomically; edits and reversals preserve that linkage.
+
+This flow initially covers same-currency accounts. Cross-currency transfers must not silently assume parity or invent an exchange rate; keep them unavailable until an explicit conversion contract is specified. Existing trip currency support is unaffected.
+
+Confirm that Split records a transfer the user made; it does not move money at the bank. Transfers between locations do not silently change reservations/purposes. A purpose change is a separate explicit operation.
+
+### A3.2 Planned-expense funding
+
+Every planned expense has an Add money action with amount and source. Distinguish:
+1. Moving money from another purpose, such as Spending, and assigning it to this expense. Update the source purpose and destination reservation together without changing total owned money. If a real bank transfer also occurred, record it explicitly and link it without duplicating the allocation.
+2. Assigning money already held in the planned-expense fund. Reduce its unassigned amount and increase the expense reservation; do not increase the fund/account balance again.
+
+The same money cannot fund multiple expenses. Available-to-assign checks run server-side and atomically, including concurrent submissions. Show the expense's funding history in its detail view. Reducing or reversing funding releases the correct reservation; editing an estimated cost is not a cash movement. Paying the expense consumes the appropriate reservation and records the actual payment once. Handle partial funding, partial payments, overspending, and cancellation explicitly; never silently drop or invent money.
+
+### A3.3 Income, payments, refunds, corrections, and budgets
+
+- Income records a real arrival in the chosen account. Suggested allocation and completed allocation are distinct states. Allocation moves/reserves existing money; it must not create a second arrival.
+- Before building new actions, reproduce and resolve the audit concern in `src/lib/server/allocations.ts`: the Mark done path was observed crediting a destination without an obvious source debit. Establish whether the source is cash or a purpose and test the full flow, including a user who already updated their recorded balance. Do not blindly add a debit without resolving the model.
+- Bill/debt/planned-expense payments must have an explicit source and target. Credit-card purchases and later repayments must not be counted as spending twice. Split principal, interest, and fees when the model requires it, rather than treating all debt payments identically.
+- Refunds link to the original expense where possible; partial and repeated refunds must be validated. They must not appear as new earned income. Define their date/reporting effect in tests.
+- Updating a recorded balance is a correction with an audit trail, not an inferred income or expense. Show what will change and do not reapply earlier transfers already represented by that correction.
+- Budget setup/adjustment requires the amount, period, and effective date. Changes create superseding periods using the existing allowance rules, never rewrite historical transactions, and never create cash. Preserve completed review snapshots and historical interpretation.
+- Every operation has defined effects on physical accounts, purposes/reservations, obligations, spending/income reports, and the daily guide. Write this effect matrix before migration or implementation. Where existing data cannot disambiguate cash and purpose balances, require explicit reconciliation rather than guessing a conversion.
+
+## A4. Task-specific data visualisation
+
+Numbers and relevant actions remain primary. Each visual must answer a named question, use actual recorded data, and include a readable textual equivalent. No decorative charts or KPI rows.
+
+| Area | Question | Visual |
+| --- | --- | --- |
+| Planned expense detail/list | How much is set aside and what is still needed? | Labelled funded/remaining bar per expense, with cost and due date |
+| Planned expenses overview | Which upcoming months need preparation? | Monthly grouping or compact timeline of expected expenses |
+| Bills & subscriptions | What is due next, and when are charges clustered? | Upcoming-charge timeline/list with due, paid, and overdue states |
+| Trends / Weekly review | How has spending changed? | Comparable weekly bars with period labels, values, and a short explanation |
+| Trends | What contributed to the change? | Focused spending breakdown, not category budgets |
+| Debt | How do repayment options differ? | Payoff timeline/comparison with total interest and visible assumptions; no unsupported projection |
+| Trips | How does recorded spending compare with the trip plan? | Labelled plan-versus-actual progress in trip context, with local/home-currency meaning explicit |
+
+Empty datasets show useful next actions rather than fabricated samples. Sparse/incomplete records are labelled. Comparisons use consistent intervals and explain exclusions, especially trip spending. Future charges and debt projections are estimates, not actual transactions. No permanent financial charts are added to Today.
+
+## A5. Copy, layout, and interaction quality
+
+- Use natural, educated Filipino English, short action-led instructions, and specific buttons such as Add money, Record payment, or Save trip. Avoid accounting jargon or explain it inline when necessary.
+- Separate expected, reserved, recorded, paid, and remaining-to-fund amounts in wording. Never call a recommendation completed or a schedule paid.
+- Remove implementation terminology and research explanations from primary UI; retain concise help where it answers a real question.
+- All tabs share the same visual frame width and height, aligned headers/navigation, and predictable internal scrolling. Equal frame height does not mean forcing content into equal lengths or clipping it. Preserve the existing 46rem sheet direction unless explicitly revised later.
+- Retain dense management/review pages and a calm Today page. Use hierarchy, grouping, and purposeful spacing rather than identical cards for everything.
+- Validate empty, loading, saving, error, populated, overdue, and long-content states. All controls must work with keyboard and touch, have visible focus, and meet contrast requirements.
+
+## A6. Shared architecture
+
+Build one action catalogue containing labels, searchable terms, required context, and the form/operation mapping. Reuse form components and shared server-side operations from Today and their owning tabs. Do not call one page's action handler from another page or duplicate accounting code across routes.
+
+All mutations require existing authorization/ownership checks, integer-money validation, database transactions where multiple records change, duplicate-submit protection, and auditable linkage. Idempotency must cover retries after an uncertain response, not only disable the button. Return consistent success/error results and invalidate affected accounts, plans, history, and daily/review views without rewriting historical snapshots.
+
+Provide safe corrections or linked reversals. Do not promise a generic Undo for actions whose later dependent records make reversal unsafe. Explain and test those cases. Preserve existing offline behaviour where supported; retries/replays must not duplicate records, and actions not safely supported offline must clearly remain unsaved.
+
+## A7. Risks and mitigations
+
+| Risk | Required mitigation |
+| --- | --- |
+| Today becomes crowded | One Actions entry point; forms appear only after selection; spending remains direct |
+| Too many choices | Stable grouping, plain labels, search; no unpredictable reordering |
+| Acting without context | Selected-item details and explicit effect summary before consequential saves |
+| Quick setup becomes a wizard | Required fields first, optional detail, preserved drafts, full-page escape route |
+| Inconsistent results across tabs | Shared forms, validation, operations, and parity tests |
+| Double counting or accidental mutations | Effect matrix, atomic linked operations, idempotency, correction/reversal rules |
+| Hidden dependency or incomplete data | Dependent setup with return, explicit reconciliation, no guessed historical money |
+
+## A8. Acceptance and verification
+
+- Every catalogue action is reachable from Today, either as a quick form or an explicitly designated dedicated workflow. Equivalent actions in owning tabs produce identical persisted results.
+- Test direct expense logging, income, transfer with/without fees, planned-expense creation/funding/payment, trip creation, bill/debt payment, refund, budget change, dependent account setup, and saved-purchase/rule actions end to end.
+- Financial tests cover principal conservation, fee-only spending for transfers, reservation conservation, insufficient/unassigned funds, concurrent writes, duplicate/retried submissions, rollback on failure, partial funding/payment/refund, linked edits/reversals, and card repayment without duplicate expense.
+- Prove the allocation fix using a regression test against the full source/destination model. Verify a recorded-balance correction cannot cause the same arrival/transfer to be counted again.
+- Prove period immutability, income not mutating daily allowance, no per-category budgets, trip exclusion from ordinary metrics, and currency minor-unit correctness. Include type/UI tests that Today receives/displays no prohibited balances or exact remaining-spending figures.
+- Exercise keyboard-only operation, dialog close/back/focus restoration, unsaved work, validation, loading/error states, and double submission. Verify all tabs at 1440px, 390px, and 320px widths and with long content, with no overflow, clipping, unreachable controls, or console errors.
+- Every chart's values must reconcile to the same selectors/totals used by its textual representation. Zero data, missing data, and projections must be distinguishable.
+- Compare current and revised representative flows for completion steps/time, wrong selections, abandonment, and understanding of the saved result. Treat usability improvements as unproven until observed; do not invent benchmarks or outcomes.
+- Use an isolated test database for mutation tests. Back up live data before any migration, provide a rollback path, and verify migration on a copy first. Builds may restart the live launchd service; do not use production data as test fixtures.
+
+## A9. Implementation order and completion boundaries
+
+1. Financial foundation: document the effect matrix; reproduce allocation/balance issues; implement linked transfers, reservation rules, safe corrections, and regression tests. Design and verify any required data migration before exposing new actions.
+2. Shared actions: reusable forms/server operations, action catalogue, Today entry point, contextual entry points in owning tabs, dependent setup, and accessibility/error handling.
+3. Purpose-first management: Accounts, Planned expenses, Bills & subscriptions, Trips, Debt, Wishlist & rules. Preserve existing features and route compatibility while replacing confusing interactions.
+4. Review and visualisation: clear weekly review, meaningful Trends comparisons, then each task-specific visual where its underlying records are reliable.
+5. Full verification: financial regression suite, action parity, all-tab interaction/layout tests, representative usability comparison, and a final copy/antislop audit. Update the handoff after each completed phase with real evidence and remaining work.
+
+Spec compilation is complete when this amendment is saved and checked. The application overhaul is complete only when the implementation and A8 checks pass. No application changes are claimed by this amendment.
 
 ---
 
@@ -85,7 +241,9 @@ This is the finding that most budgeting apps get wrong. Pocheptsova Ghosh & Huan
 
 Zhang's two-study paper (app-user data from China plus a US survey) found expense-tracking is associated with a reduced share of discretionary spending, and that the pathway runs through _financial self-awareness_. Crucially, **automated tracking** via bank integration was associated with **lower attention and weaker self-awareness** than active manual recording. The act of typing it in is where the "pain of paying" and the behaviour change live.
 
-> **Design consequence:** automate every _transfer_; manually log every _discretionary purchase_. These are opposite instructions on purpose. Automation is for money you've already decided about. Manual entry is for money you're still deciding about.
+Zhang is correlational, though, and this is invariant 3 of ten — so it needs an experiment under it. Soman's rehearsal studies are that experiment. Across two experiments covering five payment mechanisms he varied only the _payment mechanism_ and found that a past payment suppresses the next purchase **only when the mechanism required the consumer to write the amount down**, and only when wealth was depleted immediately rather than on a delay. In Experiment 1 (n = 160), subjects who paid a simulated month of expenses by check rated their purchase intention for an additional discretionary item at M = 3.80, against M = 5.26 for subjects who paid identical amounts by credit card (F(1, 152) = 18.23, p < .001). The recording step is not overhead attached to the intervention; it _is_ the intervention, and a bank feed is precisely the mechanism that removes it.
+
+> **Design consequence:** automate every _transfer_; manually log every _discretionary purchase_. These are opposite instructions on purpose. Automation is for money you've already decided about. Manual entry is for money you're still deciding about. This is also why R1 asks you to **type** four balances the app could compute — the typing is the rehearsal.
 
 ### 7. Monitoring your progress works — more so when written down and made visible to someone
 
@@ -498,7 +656,7 @@ Be honest about these. Each is something you will want and should not build.
 - **No AI categorisation.** Eight categories, chosen by a human in one tap. An LLM call here buys nothing and costs the self-awareness the manual choice generates.
 - **No mobile native app.** PWA. See Spec §8.7 for the iOS caveats you'll hit.
 - **No multi-currency accounting.** One home currency. Trips carry a second currency at a single locked rate (Spec §4.5) — that is the whole of the multi-currency story, and it is deliberately not an FX subsystem. No rate API, no historical rate table, no per-account currency.
-- **No relocation or nomadic support.** Trip Mode covers days to ~6 weeks. Beyond that it's a new cost of living and the answer is to re-run Setup, not to extend the envelope. Split assumes one stable home baseline throughout and that assumption is load-bearing — if you stop having a home baseline, this is the wrong app.
+- **No relocation or nomadic support.** Trip Mode covers days to ~6 weeks. Beyond that it's a new cost of living and the answer is to re-run Setup, not to extend the envelope. Longhand assumes one stable home baseline throughout and that assumption is load-bearing — if you stop having a home baseline, this is the wrong app.
 
 ---
 
@@ -723,7 +881,7 @@ The live home-currency figure under the keypad is not a convenience — it is th
 
 **Streak stays forgiving.** Trip days count normally, and the catch-up window widens from 48h to 72h while a trip is active. Losing a streak to a long-haul flight is a pointless way to lose a user.
 
-**Explicitly out of scope:** stays beyond ~6 weeks. That is a relocation, not a trip — a new cost of living requiring a fresh 90-day calibration, a currency change at the `settings` level, and phase-ladder re-entry. Modelling it as a very large envelope produces a buffer drain discovered four months late. If it happens, run Setup again; do not extend Trip Mode. Continuous/nomadic use is out of scope entirely — Split assumes one stable home baseline and that assumption is load-bearing throughout.
+**Explicitly out of scope:** stays beyond ~6 weeks. That is a relocation, not a trip — a new cost of living requiring a fresh 90-day calibration, a currency change at the `settings` level, and phase-ladder re-entry. Modelling it as a very large envelope produces a buffer drain discovered four months late. If it happens, run Setup again; do not extend Trip Mode. Continuous/nomadic use is out of scope entirely — Longhand assumes one stable home baseline and that assumption is load-bearing throughout.
 
 ### 4.6 Ritual engine
 
@@ -1779,7 +1937,13 @@ _Every finding cited as F1–F14 in Method Part I traces to one of these._
 
 **When budget information backfires**
 
-- Pocheptsova Ghosh, A. & Huang, L. — [The Budgeting App Trap: When Spending Information Backfires](https://www.behavioraleconomics.com/the-budgeting-app-trap-when-spending-information-backfires/), BehavioralEconomics.com.
+- Heath, C. & Soll, J. B. (1996). [Mental Budgeting and Consumer Decisions](https://academic.oup.com/jcr/article-abstract/23/1/40/1892763). _Journal of Consumer Research_, 23(1), 40–52. [doi:10.1086/209465](https://doi.org/10.1086/209465). ([full text PDF](https://bear.warrington.ufl.edu/brenner/mar7588/Papers/heath-soll-jcr1996.pdf)) — the peer-reviewed basis for **F5**'s category half. Consumers really do set per-category budgets and really do track against them, and because a budget cannot anticipate the consumption opportunities that actually arrive, the earmark itself causes both over- and under-consumption. 764 citations. This is the citation **F5** should lead with, not the working paper below.
+- Pocheptsova Ghosh, A. & Huang, L. (2022). _Dynamic Budget Monitoring: When Access to Budget Feedback Leads to Increase in Spending._ Think Forward Initiative / CEPR technical report. ([report PDF](https://cepr.org/system/files/2022-08/Dynamic%20Budget%20Monitoring%20-%20When%20Access%20to%20Budget%20Feedback%20Leads%20to%20Increase%20in%20Spending%20-%20Anastasiya%20Pocheptsova%20Ghosh%20&%20Liang%20Huang.pdf) · [plain-language summary](https://www.behavioraleconomics.com/the-budgeting-app-trap-when-spending-information-backfires/)) — three field studies and two lab experiments; app users overspent their budgets by roughly 26–33%, and of the six remedies tested, showing a **range** helped and **subdividing the budget** backfired.
+  **Status, stated plainly: this is a working paper, not a peer-reviewed article.** It is the single most load-bearing citation in this document — §4.2's entire withholding layer rests on it — and it carries the least evidentiary weight of anything cited here. Heath & Soll (peer-reviewed, 764 citations) independently supports the category half; the _range-instead-of-a-number_ half has this source and no other. Treat Rule 2 as the design bet it is.
+
+**Manual entry, and why the typing is the mechanism**
+
+- Soman, D. (2001). [Effects of Payment Mechanism on Spending Behavior: The Role of Rehearsal and Immediacy of Payments](https://academic.oup.com/jcr/article-abstract/27/4/460/1810425). _Journal of Consumer Research_, 27(4), 460–474. [doi:10.1086/319621](https://doi.org/10.1086/319621). ([full text PDF](https://www-2.rotman.utoronto.ca/facbios/file/paymechjcr.pdf)) — 466 citations. Past payments suppress the next purchase **only when the payment mechanism made the consumer write the amount down** (rehearsal) and when wealth was depleted immediately rather than on a delay. This is the direct evidence for Invariant 3 and for R1's typed balances: the recording step is not bookkeeping overhead attached to the intervention, it _is_ the intervention, and an automatic bank feed removes precisely the rehearsal that does the work.
 
 **Manual vs. automated tracking**
 

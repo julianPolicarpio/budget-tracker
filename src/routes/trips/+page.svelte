@@ -1,5 +1,5 @@
 <script lang="ts">
-	import ReviewNav from '$lib/components/ReviewNav.svelte';
+	import NavStrip from '$lib/components/NavStrip.svelte';
 	import { enhance } from '$app/forms';
 	import Figure from '$lib/components/Figure.svelte';
 	import { formatMoney } from '$lib/money';
@@ -34,14 +34,17 @@
 	<main class="sheet"><p class="eyebrow">Not set up</p></main>
 {:else}
 	<main class="sheet">
+		<NavStrip />
+
 		<header class="masthead">
 			<div>
-				<p class="eyebrow">Trips</p>
-				<h1>A funded irregular being drawn down</h1>
+				<h1>Trips</h1>
+				<p class="lede">
+					Plan a trip, track what you spend while you are on it, and settle the cost when you get
+					back. Trip spending stays out of your ordinary daily figure.
+				</p>
 			</div>
 		</header>
-
-		<ReviewNav />
 
 		{#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
 
@@ -55,7 +58,7 @@
 				<p class="muted">
 					left of {money(envelope)}
 					{#if a.trip.bufferDrawMinor > 0}
-						(including {money(a.trip.bufferDrawMinor)} drawn from the Emergency fund)
+						(including {money(a.trip.bufferDrawMinor)} taken from the Emergency fund)
 					{/if}
 					· {dayLabel(a.trip.startsOn)} – {dayLabel(a.trip.endsOn)} · {a.trip.tripTz}
 				</p>
@@ -82,7 +85,7 @@
 			</section>
 
 			<Figure
-				title="Burn-down — actual against pace"
+				title="Spending — actual against pace"
 				emptyNote="Fills in as you log. The straight line is the even-spend pace; being above it early is normal, because flights and deposits are front-loaded."
 				minPoints={3}
 				columns={['Day', 'Cumulative', 'Pace']}
@@ -146,7 +149,7 @@
 					<form method="POST" action="?/setRate" use:enhance class="card">
 						<input type="hidden" name="id" value={a.trip.id} />
 						<label class="field">
-							<span class="field-label">Effective rate — home per 1 {a.trip.currencyCode}</span>
+							<span class="field-label">Exchange rate — home per 1 {a.trip.currencyCode}</span>
 							<span class="field-input">
 								<input
 									name="fxRateToHome"
@@ -181,8 +184,8 @@
 							</span>
 						</label>
 						<p class="muted">
-							Two numbers, and their difference is the point. <strong>Envelope − logged</strong> is
-							the estimate error, which tunes next year. <strong>Actual − logged</strong> is the FX and
+							Two numbers, and their difference is the point. <strong>Set aside − logged</strong> is
+							the estimate error, which tunes next year. <strong>Actual − logged</strong> is the exchange-rate and
 							fee error, which tunes next trip's rate. Different failures, different fixes.
 						</p>
 						<button class="primary" type="submit">Settle the trip</button>
@@ -239,7 +242,7 @@
 							<ol>
 								<li>Shorten it.</li>
 								<li>Downgrade it.</li>
-								<li>Draw the shortfall from the Emergency fund, with an IOU.</li>
+								<li>Take the shortfall from the Emergency fund, with an IOU.</li>
 							</ol>
 							{#if coveringId === p.trip.id}
 								<form method="POST" action="?/coverShortfall" use:enhance>
@@ -269,11 +272,11 @@
 											<span class="field-input"><input name="iouRepayBy" type="date" /></span>
 										</label>
 									</div>
-									<button class="primary" type="submit">Draw from Emergency fund with an IOU</button>
+									<button class="primary" type="submit">Take from Emergency fund with an IOU</button>
 								</form>
 							{:else}
 								<button class="ghost" type="button" onclick={() => (coveringId = p.trip.id)}>
-									Draw from the Emergency fund
+									Take from the Emergency fund
 								</button>
 							{/if}
 						</div>
@@ -336,7 +339,7 @@
 							</select>
 						</label>
 						<label class="field">
-							<span class="field-label">Rate — home per 1 unit</span>
+							<span class="field-label">Exchange rate — home per 1 unit</span>
 							<span class="field-input">
 								<input
 									name="fxRateToHome"
@@ -356,9 +359,9 @@
 						</label>
 					</div>
 					<p class="muted">
-						The estimate is padded 25% like any other irregular, and the trip is accrued from
+						The estimate is padded 25% like any other irregular, and the trip is set aside from
 						Irregulars from now until departure. Anything past {data.maxTripDays} days is a relocation,
-						not a trip — that needs a fresh calibration, not a bigger envelope.
+						not a trip — that needs a fresh calibration, not a bigger set-aside.
 					</p>
 					<button class="primary" type="submit">Declare it</button>
 				</form>
@@ -375,11 +378,11 @@
 							<tr>
 								<th scope="col">Trip</th>
 								<th scope="col">When</th>
-								<th scope="col">Envelope</th>
+								<th scope="col">Set aside</th>
 								<th scope="col">Logged</th>
 								<th scope="col">Actual</th>
 								<th scope="col">Estimate error</th>
-								<th scope="col">FX error</th>
+								<th scope="col">Rate error</th>
 							</tr>
 						</thead>
 						<tbody>

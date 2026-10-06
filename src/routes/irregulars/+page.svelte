@@ -1,5 +1,5 @@
 <script lang="ts">
-	import ReviewNav from '$lib/components/ReviewNav.svelte';
+	import NavStrip from '$lib/components/NavStrip.svelte';
 	import { enhance } from '$app/forms';
 	import Figure from '$lib/components/Figure.svelte';
 	import { CATEGORIES } from '$lib/categories';
@@ -116,14 +116,17 @@
 	</main>
 {:else}
 	<main class="sheet">
+		<NavStrip />
+
 		<header class="masthead">
 			<div>
-				<p class="eyebrow">Big bills</p>
-				<h1>Lumpy costs, paid for before they land</h1>
+				<h1>Big bills</h1>
+				<p class="lede">
+					Costs that land once or twice a year, paid for a little at a time. Add money to each one
+					so it is covered before it arrives.
+				</p>
 			</div>
 		</header>
-
-		<ReviewNav />
 
 		{#if form?.error}
 			<p class="error" role="alert">{form.error}</p>
@@ -137,7 +140,7 @@
 		-->
 		{#if data.overdue.length > 0}
 			<section class="card reconcile">
-				<p class="eyebrow">Reconcile — {data.overdue.length} due and unmarked</p>
+				<p class="eyebrow">Catch up — {data.overdue.length} due and unmarked</p>
 				<p class="lede">
 					Each of these was due and never marked. Paid, skipped, or rescheduled — there is no fourth
 					option, because the alternative is a ledger that quietly stops matching your bank.
@@ -208,7 +211,7 @@
 
 			{#if data.accrualPerPeriod !== null}
 				<p class="muted accrual">
-					This period's accrual: <strong>{money(data.accrualPerPeriod)}</strong> over
+					Set aside this period: <strong>{money(data.accrualPerPeriod)}</strong> over
 					{data.periodDays} days. Recomputed each period, so a new cost due in two months raises the next
 					two periods rather than quietly under-funding.
 				</p>
@@ -217,7 +220,7 @@
 
 		<!-- 4.2 Next 12 months. Single series → no legend; the title names it. -->
 		<Figure
-			title="Expected outflow, next 12 months"
+			title="Expected spending, next 12 months"
 			emptyNote="Nothing scheduled yet. This fills in as you declare irregulars, and the two spikes a year you would otherwise forget become visible here first."
 			columns={['Month', 'Expected']}
 			rows={data.outflow.map((o) => [monthLabel(o.month), money(o.expectedMinor)])}
@@ -249,10 +252,10 @@
 			weekly review snapshots.
 		-->
 		<Figure
-			title="Accrued against required"
+			title="Set aside against needed"
 			emptyNote="Appears after two completed weekly reviews — the balance you assert at R1 is what draws this line."
 			minPoints={3}
-			columns={['Week ending', 'Accrued', 'Required (90 days)']}
+			columns={['Week ending', 'Set aside', 'Needed (90 days)']}
 			rows={data.history.map((h) => [
 				dayLabel(h.endsOn),
 				money(h.accruedMinor),
@@ -287,7 +290,7 @@
 								Plot.text([data.history.at(-1)], {
 									x: (d: { endsOn: string }) => new Date(d.endsOn),
 									y: 'accruedMinor',
-									text: () => 'accrued',
+									text: () => 'set aside',
 									dx: 6,
 									textAnchor: 'start',
 									fill: 'var(--series-1-fill)'
@@ -295,7 +298,7 @@
 								Plot.text([data.history.at(-1)], {
 									x: (d: { endsOn: string }) => new Date(d.endsOn),
 									y: 'requiredMinor',
-									text: () => 'required',
+									text: () => 'needed',
 									dx: 6,
 									textAnchor: 'start',
 									fill: 'var(--series-2-fill)'
@@ -431,7 +434,7 @@
 								<th scope="col">Cadence</th>
 								<th scope="col">Estimate</th>
 								<th scope="col">Padding</th>
-								<th scope="col">Accrues</th>
+								<th scope="col">Sets aside</th>
 								<th scope="col"><span class="sr-only">Actions</span></th>
 							</tr>
 						</thead>
@@ -659,6 +662,8 @@
 	}
 
 	.scroll {
+		position: relative;
+		min-width: 0;
 		overflow-x: auto;
 	}
 

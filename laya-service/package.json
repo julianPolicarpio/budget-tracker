@@ -1,0 +1,13 @@
+{
+	"name": "longhand-laya-service",
+	"private": true,
+	"version": "0.1.0",
+	"type": "module",
+	"scripts": {
+		"test": "node --test server.test.mjs",
+		"start": "node server.mjs"
+	},
+	"dependencies": {
+		"@receptron/laya": "0.1.2"
+	}
+}

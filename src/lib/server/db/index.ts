@@ -33,7 +33,39 @@ import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import * as schema from './schema';
 
-const dbPath = process.env.DATABASE_URL ?? resolve('data', 'split.db');
+/*
+ * ─── The production-database guard ───────────────────────────────────────
+ *
+ * This line runs at IMPORT time, which is the whole hazard. A test that
+ * imports any server module statically — `import { x } from './accounts'` at
+ * the top of the file — pulls this module in before its own `beforeAll` has
+ * had a chance to point DATABASE_URL at a temp directory. The fallback below
+ * then opens the real `data/split.db`, and the test seeds its fixtures into
+ * somebody's actual financial history. Silently, and with a green run.
+ *
+ * That is not hypothetical: it happened on 2026-09-22 and wrote two fixture
+ * tenants and their cascaded rows into live data before anyone noticed.
+ *
+ * Every test in this repo already does the right thing — set DATABASE_URL,
+ * then `await import()` the module inside `beforeAll`. The convention was
+ * held by discipline alone, and discipline is not a mechanism. So: under a
+ * test runner, an unset DATABASE_URL is a loud refusal rather than a quiet
+ * default. The cost of being wrong in the other direction is unrecoverable.
+ */
+const explicitPath = process.env.DATABASE_URL;
+const underTest = process.env.VITEST === 'true' || process.env.NODE_ENV === 'test';
+if (underTest && !explicitPath) {
+	throw new Error(
+		'Refusing to open the production database from a test run.\n' +
+			'DATABASE_URL is unset, so this would have opened data/split.db — live user data.\n' +
+			'This almost always means a test imported a server module statically. Instead:\n' +
+			"  process.env.DATABASE_URL = join(mkdtempSync(...), 'split.db');\n" +
+			"  const mod = await import('./the-module');   // inside beforeAll, after the line above\n" +
+			'See any *.integration.test.ts in src/lib/server/ for the working pattern.'
+	);
+}
+
+const dbPath = explicitPath ?? resolve('data', 'split.db');
 mkdirSync(dirname(dbPath), { recursive: true });
 
 export const sqlite = new Database(dbPath);

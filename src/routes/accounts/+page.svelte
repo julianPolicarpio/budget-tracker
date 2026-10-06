@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { CADENCE_LABEL, arrivalsPerYear, type IncomeCadence } from '$lib/income-cadence';
-	import ReviewNav from '$lib/components/ReviewNav.svelte';
+	import NavStrip from '$lib/components/NavStrip.svelte';
 	import { enhance } from '$app/forms';
 	import { formatMoney } from '$lib/money';
 	import type { ActionData, PageData } from './$types';
@@ -40,6 +40,9 @@
 	// Seeded in an effect rather than at declaration: reading `data` there would
 	// capture only its initial value.
 	let transferFrom = $state('');
+	// A3.6: one submission identity per attempt. Regenerated only after the
+	// server answers — an uncertain retry reuses it, so nothing records twice.
+	let transferClientUuid = $state(crypto.randomUUID());
 	$effect(() => {
 		if (!transferFrom && data.ready) transferFrom = String(data.accounts[0]?.id ?? '');
 	});
@@ -62,14 +65,17 @@
 	</main>
 {:else}
 	<main class="sheet">
+		<NavStrip />
+
 		<header class="masthead">
 			<div>
-				<p class="eyebrow">Accounts</p>
-				<h1>Where the money is, and what it is waiting on</h1>
+				<h1>Accounts</h1>
+				<p class="lede">
+					Update what each account holds, and move money between them. These figures are what you
+					last told Split, not a live balance from a bank.
+				</p>
 			</div>
 		</header>
-
-		<ReviewNav />
 
 		{#if form?.error}
 			<p class="error" role="alert">{form.error}</p>
@@ -416,7 +422,18 @@ INCOME ──┬──▶ BILLS            auto-debits only, never thought about
 		<!-- Transfer form -->
 		<section class="block">
 			<p class="eyebrow">Record a transfer</p>
-			<form method="POST" action="?/transfer" use:enhance class="card">
+			<form
+				method="POST"
+				action="?/transfer"
+				use:enhance={() => {
+					return async ({ update }) => {
+						await update();
+						transferClientUuid = crypto.randomUUID();
+					};
+				}}
+				class="card"
+			>
+				<input type="hidden" name="clientUuid" value={transferClientUuid} />
 				<div class="grid">
 					<label class="field">
 						<span class="field-label">From</span>
@@ -435,6 +452,13 @@ INCOME ──┬──▶ BILLS            auto-debits only, never thought about
 						<span class="field-input">
 							<span class="field-sym">{symbol}</span>
 							<input name="amount" type="text" inputmode="decimal" required />
+						</span>
+					</label>
+					<label class="field">
+						<span class="field-label">Fee, kung mayroon</span>
+						<span class="field-input">
+							<span class="field-sym">{symbol}</span>
+							<input name="fee" type="text" inputmode="decimal" aria-label="Transfer fee" />
 						</span>
 					</label>
 					<label class="field">
@@ -570,6 +594,8 @@ INCOME ──┬──▶ BILLS            auto-debits only, never thought about
 	}
 
 	.scroll {
+		position: relative;
+		min-width: 0;
 		overflow-x: auto;
 	}
 

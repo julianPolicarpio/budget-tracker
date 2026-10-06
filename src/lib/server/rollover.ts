@@ -117,7 +117,9 @@ export function closePeriod(
 
 	const spent =
 		db
-			.select({ n: sql<number>`coalesce(sum(${schema.txn.amountMinor}), 0)` })
+			.select({
+				n: sql<number>`coalesce(sum(case when ${schema.txn.refundOf} is not null then -${schema.txn.amountMinor} else ${schema.txn.amountMinor} end), 0)`
+			})
 			.from(schema.txn)
 			.where(and(owns(schema.txn), eq(schema.txn.periodId, p.id)))
 			.get()?.n ?? 0;

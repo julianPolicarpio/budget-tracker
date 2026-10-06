@@ -21,6 +21,7 @@
 		type LogEntry
 	} from '$lib/log-entry.svelte';
 	import type { ParsedEntry } from '$lib/entry-parser';
+	import { actionById } from '$lib/actions/catalogue';
 
 	interface Props {
 		entry: LogEntry;
@@ -31,9 +32,14 @@
 		 * button both CHOOSES and SAVES in one tap (Spec's "one typed string
 		 * plus one tap") — there is no separate "Save" button here. */
 		onSubmit: () => void;
+		/** Opens a reviewed action form while retaining the typed text. */
+		onContinue?: () => void;
+		onChooseAction?: (id: string) => void;
+		intentLoading?: boolean;
+		intentChoices?: { source: string; ids: string[] } | null;
 	}
 
-	let { entry, resolved, minorUnits, symbol, onSubmit }: Props = $props();
+	let { entry, resolved, minorUnits, symbol, onSubmit, onContinue, onChooseAction, intentLoading = false, intentChoices = null }: Props = $props();
 
 	function money(minor: number): string {
 		return formatMoney(minor, { minorUnits, symbol });
@@ -76,11 +82,6 @@
 		onSubmit();
 	}
 
-	function saveCommitment(mode: 'same' | 'same_essential' | 'varies') {
-		entry.commitmentMode = mode;
-		onSubmit();
-	}
-
 	function confirmNoWrite() {
 		onSubmit();
 	}
@@ -102,6 +103,9 @@
 		{/if}
 		<span class="ask">{question}</span>
 		<div class="chips">
+			{#if onContinue}
+				<button type="button" class="continue" disabled={intentLoading} onclick={onContinue}>{intentLoading ? 'Finding a form…' : 'Continue'}</button>
+			{/if}
 			<button type="button" onclick={chooseOnce}>Just this once</button>
 			<span class="chip-label">It repeats:</span>
 			{#each CADENCE_WORDS as word (word)}
@@ -115,6 +119,9 @@
 		{/if}
 		<span class="ask">{question}</span>
 		<div class="chips">
+			{#if onContinue}
+				<button type="button" class="continue" disabled={intentLoading} onclick={onContinue}>{intentLoading ? 'Finding a form…' : 'Continue'}</button>
+			{/if}
 			{#each CATEGORIES as cat (cat.key)}
 				<button
 					type="button"
@@ -185,27 +192,28 @@
 	</div>
 {:else if actionKind === 'new_commitment'}
 	<div class="altact">
-		<p class="reserve-ask">Is it the same amount every time?</p>
-		<div class="optcol">
-			<button class="altbtn opt" type="button" disabled={!hasAmount} onclick={() => saveCommitment('same')}>
-				<b>Same every time</b><i>Reserved every period.</i>
-			</button>
-			<button
-				class="altbtn opt"
-				type="button"
-				disabled={!hasAmount}
-				onclick={() => saveCommitment('same_essential')}
-			>
-				<b>Same, and non-negotiable</b><i>Reserved every period. Never asked to cancel.</i>
-			</button>
-			<button class="altbtn opt" type="button" disabled={!hasAmount} onclick={() => saveCommitment('varies')}>
-				<b>The amount varies</b><i>Tracks what you actually pay, with padding.</i>
-			</button>
-		</div>
+		{#if onContinue}
+			<button class="altbtn" type="button" disabled={intentLoading} onclick={onContinue}>{intentLoading ? 'Finding a form…' : 'Continue to a form'}</button>
+		{/if}
 	</div>
 {:else if actionKind === 'transfer'}
 	<div class="altact">
+		{#if onContinue}
+			<button class="altbtn" type="button" disabled={intentLoading} onclick={onContinue}>{intentLoading ? 'Finding a form…' : 'Continue to a form'}</button>
+		{/if}
 		<button class="altbtn" type="button" disabled={!hasAmount} onclick={confirmNoWrite}>Got it</button>
+	</div>
+{/if}
+
+{#if intentChoices && intentChoices.source === entry.text.trim() && onChooseAction}
+	<div class="intent-options" role="group" aria-label="Choose an action">
+		<p>Choose the form you meant:</p>
+		{#each intentChoices.ids as id (id)}
+			{@const action = actionById(id)}
+			{#if action}
+				<button type="button" onclick={() => onChooseAction(id)}>{action.label}</button>
+			{/if}
+		{/each}
 	</div>
 {/if}
 
@@ -368,6 +376,31 @@
 		margin-top: 0.875rem;
 	}
 
+	.intent-options {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		margin-top: 0.75rem;
+	}
+
+	.intent-options p {
+		flex-basis: 100%;
+		margin: 0;
+		font-size: 0.8125rem;
+		color: var(--ink-secondary);
+	}
+
+	.intent-options button {
+		min-height: var(--touch);
+		padding: 0.5rem 0.75rem;
+		border: 1px solid var(--hairline-strong);
+		border-radius: 0.375rem;
+		background: var(--surface);
+		color: var(--ink);
+		font: inherit;
+		cursor: pointer;
+	}
+
 	.covered {
 		margin: 0 0 0.5rem;
 		padding: 0.5rem 0.625rem;
@@ -375,12 +408,6 @@
 		border-radius: 0.375rem;
 		color: var(--ink-secondary);
 		font-size: 0.8125rem;
-	}
-
-	.reserve-ask {
-		margin: 0 0 0.5rem;
-		font-size: 0.8125rem;
-		color: var(--status-warning);
 	}
 
 	.altbtn {
@@ -404,31 +431,4 @@
 		cursor: not-allowed;
 	}
 
-	.optcol {
-		display: flex;
-		flex-direction: column;
-		gap: 0.375rem;
-	}
-
-	.altbtn.opt {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		gap: 0.15rem;
-		min-height: var(--touch);
-		padding: 0.5rem 0.75rem;
-		text-align: left;
-		border-color: var(--hairline-strong);
-	}
-
-	.altbtn.opt b {
-		font-weight: 500;
-		font-size: 0.8125rem;
-	}
-
-	.altbtn.opt i {
-		font-style: normal;
-		font-size: 0.75rem;
-		color: var(--ink-muted);
-	}
 </style>

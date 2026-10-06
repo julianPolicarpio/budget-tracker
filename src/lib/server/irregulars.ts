@@ -16,6 +16,7 @@
 
 import { and, asc, desc, eq, gte, isNull, lte, ne, or, sql } from 'drizzle-orm';
 import { forUser, schema, type Scope } from './db';
+import { outstandingFor } from './reservations';
 import { addDays, daysBetween } from './clock';
 import type { Irregular, IrregularInstance } from './db/schema';
 
@@ -422,7 +423,8 @@ export function settleInstance(
 			.where(and(owns(schema.irregularInstance), eq(schema.irregularInstance.id, instanceId)))
 			.run();
 
-		// Drawdown: the money leaves Irregulars because the cost landed.
+		// Drawdown: the money leaves Irregulars because the cost landed. Never
+		// below zero — a real cost cannot make the recorded balance negative.
 		tx.update(schema.account)
 			.set({
 				balanceMinor: sql`max(0, ${schema.account.balanceMinor} - ${actualMinor})`,
@@ -430,6 +432,31 @@ export function settleInstance(
 			})
 			.where(and(owns(schema.account), eq(schema.account.kind, 'irregulars')))
 			.run();
+
+		// Op 6: the reservation becomes a payment. The promise dissolves up to
+		// what was actually paid; an underfunded payment spends more than was
+		// promised, which is shown, never hidden.
+		const bucket = tx
+			.select({ id: schema.account.id })
+			.from(schema.account)
+			.where(and(owns(schema.account), eq(schema.account.kind, 'irregulars'), isNull(schema.account.archivedAt)))
+			.get();
+		if (bucket) {
+			const outstanding = outstandingFor(userId, inst.irregularId, bucket.id, tx);
+			if (outstanding > 0) {
+				tx.insert(schema.expenseReservation)
+					.values({
+						irregularId: inst.irregularId,
+						accountId: bucket.id,
+						kind: 'consume',
+						amountMinor: Math.min(outstanding, actualMinor),
+						note: 'Settled',
+						createdAt: now.toISOString(),
+						userId
+					})
+					.run();
+			}
+		}
 
 		advanceNextDue(userId, tx, inst.irregularId, inst.dueOn);
 	});

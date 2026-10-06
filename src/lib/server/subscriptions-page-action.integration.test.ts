@@ -65,6 +65,7 @@ describe('quickAdd — Spec §7.3 fix', () => {
 			label: 'ChatGPT subscription',
 			amount: '1100',
 			cadence: 'monthly',
+			nextChargeOn: freeUntil,
 			freeUntil
 		})) as { added?: boolean };
 		expect(result.added).toBe(true);
@@ -78,10 +79,12 @@ describe('quickAdd — Spec §7.3 fix', () => {
 	});
 
 	it('a non-trial quick-add keeps the cadence-scaled default and FINAL_ALERT_DAYS', async () => {
+		const nextChargeOn = m.clock.addDays(m.clock.localToday(TZ), 30);
 		const result = (await invoke('quickAdd', {
 			label: 'Home wifi',
 			amount: '750',
 			cadence: 'monthly',
+			nextChargeOn,
 			isEssential: '1'
 		})) as { added?: boolean };
 		expect(result.added).toBe(true);

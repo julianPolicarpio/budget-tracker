@@ -29,6 +29,10 @@
 		type TripSnapshot
 	} from '$lib/log-entry.svelte';
 	import EntryResolution from './EntryResolution.svelte';
+	import ActionView from './actions/ActionView.svelte';
+	import { ACTION_PILLS } from '$lib/actions/catalogue';
+	import type { ActionContext } from '$lib/actions/context';
+	import type { ActionDraft } from '$lib/actions/draft';
 
 	interface Props {
 		tripEntry: TripEntry;
@@ -61,6 +65,30 @@
 		onClose: () => void;
 		onTripSaved: (s: TripSnapshot) => void;
 		onEntrySaved: (s: ParsedEntry) => void;
+		/** Optional: whole-operation action pills (Record income, Transfer
+		 * money, Record a payment) rendered alongside the commitment pills.
+		 * Absent in embedders with no host page to hand off to (tests). */
+		onActionPill?: (actionId: string) => void;
+		/** The action the bar has switched to (a pill was tapped), or
+		 * undefined while this is the typing bar itself. The two states are one
+		 * surface (owner request: seamless transition), so an action swaps this
+		 * panel's *content* rather than closing it and opening a second
+		 * overlay. */
+		actionId?: string;
+		/** Today's action context — what an action's own form needs
+		 * (accounts, refundable). Absent in embedders with no action view. */
+		actionContext?: ActionContext;
+		/** Back to the typing bar; the host owns that state. */
+		onActionBack?: () => void;
+		/** The action's form recorded something: the host closes the surface. */
+		onActionSaved?: () => void;
+		actionDraft?: ActionDraft;
+		onActionDraftChange?: (draft: ActionDraft) => void;
+		onContinue?: () => void;
+		onTextChanged?: () => void;
+		onChooseAction?: (id: string) => void;
+		intentLoading?: boolean;
+		intentChoices?: { source: string; ids: string[] } | null;
 	}
 
 	let {
@@ -77,7 +105,23 @@
 		onQueueChanged,
 		onClose,
 		onTripSaved,
-		onEntrySaved
+		onEntrySaved,
+		/** Picking an action-feature pill hands the id to the host, which
+		 * decides what that action means (a form here, or a tab to navigate
+		 * to) and passes it back as `actionId` — this overlay never opens a
+		 * second surface of its own. */
+		onActionPill,
+		actionId,
+		actionContext,
+		onActionBack,
+		onActionSaved,
+		actionDraft,
+		onActionDraftChange,
+		onContinue,
+		onTextChanged,
+		onChooseAction,
+		intentLoading,
+		intentChoices
 	}: Props = $props();
 
 	const keypad = $derived(tripCurrency ?? currency);
@@ -97,7 +141,10 @@
 	let mode = $state<'amount' | 'category'>('amount');
 
 	$effect(() => {
-		if (open) {
+		// Not while an action view is up: that view focuses its own first
+		// field, and pulling focus back to the entry input hidden behind it
+		// would leave the keyboard typing into something nobody can see.
+		if (open && !actionId) {
 			mode = 'amount';
 			queueMicrotask(() => (tripCurrency ? tripAmountEl : textEl)?.focus());
 		}
@@ -212,9 +259,36 @@
 		onkeydown={() => {}}
 	></div>
 
-	<div class="panel" data-motion="fade" role="dialog" aria-modal="true" aria-label="Log an entry">
-		{#if tripCurrency}
-			<form bind:this={formEl} method="POST" action="?/logTxn" use:enhance={tripSubmit(tripEntry, onTripSaved)}>
+	<div
+		class="panel"
+		data-motion="fade"
+		role="dialog"
+		aria-modal="true"
+		aria-label={actionId ? 'Record an action' : 'Log an entry'}
+	>
+		{#if actionId && actionContext && onActionBack && onActionSaved}
+			<!--
+				An action-feature pill was tapped: same panel, same place, same
+				animation — only the content changes, which is the point of the
+				hand-off (owner request: seamless transition). A sibling of the
+				entry form, never inside it: these forms are <form> elements
+				themselves, and nesting them is invalid HTML.
+			-->
+			<ActionView
+				{actionId}
+				context={actionContext}
+				draft={actionDraft}
+				onDraftChange={onActionDraftChange}
+				onBack={onActionBack}
+				onSaved={onActionSaved}
+			/>
+		{:else if tripCurrency}
+			<form
+				bind:this={formEl}
+				method="POST"
+				action="?/logTxn"
+				use:enhance={tripSubmit(tripEntry, onTripSaved)}
+			>
 				<input type="hidden" name="clientUuid" value={tripEntry.clientUuid} />
 
 				<!-- Amount -->
@@ -256,7 +330,9 @@
 				<!-- Planned / unplanned -->
 				<fieldset
 					class="seg"
-					class:armed={tripEntry.amount.trim() !== '' && tripEntry.category !== '' && tripEntry.planned === ''}
+					class:armed={tripEntry.amount.trim() !== '' &&
+						tripEntry.category !== '' &&
+						tripEntry.planned === ''}
 				>
 					<legend class="sr-only">Was this planned?</legend>
 					<label class="seg-opt" class:on={tripEntry.planned === '1'}>
@@ -304,18 +380,52 @@
 						autocorrect="off"
 						spellcheck="false"
 						placeholder="kape 65"
+						oninput={onTextChanged}
 						onkeydown={(e) => {
 							if (e.key === 'Enter') e.preventDefault();
 						}}
 					/>
 				</label>
 
-				<EntryResolution
+				<!--
+					Action-feature pills (user request): the catalogue's money
+					operations, so opening this bar shows what else the app can
+					do besides logging spending — the same set the mobile shell's
+					row renders, one tap into the action's own view below.
+				-->
+				{#if entry.text.trim() === '' || /^\s*\d+$/.test(entry.text)}
+					{#if onActionPill}
+						<div class="sugg-row">
+							<!-- Action-feature pills (user request): the catalogue's
+							     money operations, so what else this bar can do is visible
+							     without leaving it. Tapping one hands the id to the host
+							     page, which passes it back as `actionId` — this panel then
+							     swaps its content to that action (see the `actionId` branch
+							     above), so the bar and the action are one surface. Skipped
+							     in embedders with no onActionPill (tests, other tabs). -->
+							{#each ACTION_PILLS as p (p.id)}
+								<button
+									type="button"
+									class="sugg-pill sugg-pill--action"
+									onclick={() => onActionPill(p.id)}
+								>
+									{p.label}
+								</button>
+							{/each}
+						</div>
+					{/if}
+				{/if}
+
+			<EntryResolution
 					{entry}
 					{resolved}
 					minorUnits={currency.minorUnits}
 					symbol={currency.symbol}
-					onSubmit={submitEntry}
+				onSubmit={submitEntry}
+				{onContinue}
+				{onChooseAction}
+				{intentLoading}
+				{intentChoices}
 				/>
 
 				<!-- The offline outbox's queue (Spec §6, task A5) — same rule as
@@ -534,6 +644,30 @@
 		height: 1px;
 		opacity: 0;
 		pointer-events: none;
+	}
+
+	/* ── Action-feature pills under the typing bar (user request) ──────── */
+	.sugg-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.375rem;
+		margin-top: 0.5rem;
+	}
+
+	.sugg-pill {
+		font: inherit;
+		font-size: 0.8125rem;
+		padding: 0.2rem 0.65rem;
+		border: 1px solid var(--hairline-strong);
+		border-radius: 999px;
+		background: var(--surface);
+		color: var(--ink-secondary);
+		cursor: pointer;
+	}
+
+	.sugg-pill:active {
+		border-color: var(--accent);
+		color: var(--ink);
 	}
 
 	/* ── Hint bar ─────────────────────────────────────────────────────── */

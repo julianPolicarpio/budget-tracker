@@ -183,6 +183,13 @@ body {
 	display: flex;
 	flex-direction: column;
 	gap: 1.5rem;
+	min-height: 100dvh;
+}
+
+/* The sheet fills the viewport but its children keep natural height; nothing
+   stretches to absorb leftover space, so the page scrolls naturally. */
+.sheet > * {
+	flex: none;
 }
 
 .eyebrow {
@@ -243,6 +250,31 @@ body {
 	max-width: 42ch;
 	color: var(--ink-secondary);
 	font-size: 0.9375rem;
+}
+
+/*
+ * Navigation animates to show continuity, so somebody who asked their system
+ * for less motion must not get it. The View Transitions API does not read the
+ * preference on its own: without this the pill still slides and the screens
+ * still crossfade. Turning the animations off here leaves the navigation
+ * itself untouched, it simply arrives instantly.
+ */
+@media (prefers-reduced-motion: reduce) {
+	::view-transition-group(*),
+	::view-transition-old(*),
+	::view-transition-new(*) {
+		animation: none !important;
+	}
+}
+
+/*
+ * A lede sitting directly under the page heading, which is where it belongs
+ * now that the heading is the plain name of the screen and the sentence under
+ * it carries the task (DESIGN.md, Voice). `.lede` zeroes its own margins for
+ * the cases where it follows a nav or an error, so it needs the gap back here.
+ */
+.masthead .lede {
+	margin-top: 0.5rem;
 }
 
 .empty {

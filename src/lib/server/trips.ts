@@ -72,7 +72,9 @@ export function tripSpentMinor(userId: number, tripId: number): number {
 	const { db, owns } = forUser(userId);
 	return (
 		db
-			.select({ n: sql<number>`coalesce(sum(${schema.txn.amountMinor}), 0)` })
+			.select({
+				n: sql<number>`coalesce(sum(case when ${schema.txn.refundOf} is not null then -${schema.txn.amountMinor} else ${schema.txn.amountMinor} end), 0)`
+			})
 			.from(schema.txn)
 			.where(and(owns(schema.txn), eq(schema.txn.tripId, tripId)))
 			.get()?.n ?? 0
@@ -413,7 +415,7 @@ export function burndown(userId: number, trip: Trip, today: string): BurndownPoi
 	const perDay = db
 		.select({
 			spentOn: schema.txn.spentOn,
-			minor: sql<number>`sum(${schema.txn.amountMinor})`
+			minor: sql<number>`sum(case when ${schema.txn.refundOf} is not null then -${schema.txn.amountMinor} else ${schema.txn.amountMinor} end)`
 		})
 		.from(schema.txn)
 		.where(and(owns(schema.txn), eq(schema.txn.tripId, trip.id)))

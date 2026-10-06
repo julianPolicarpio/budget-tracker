@@ -1,5 +1,5 @@
 <script lang="ts">
-	import ReviewNav from '$lib/components/ReviewNav.svelte';
+	import NavStrip from '$lib/components/NavStrip.svelte';
 	import { enhance } from '$app/forms';
 	import { formatMoney } from '$lib/money';
 	import type { ActionData, PageData } from './$types';
@@ -21,9 +21,9 @@
 	}
 
 	const MODE_LABEL = {
-		snowball: 'Snowball — smallest balance first',
-		hybrid: 'Hybrid — smallest first, then optimise',
-		avalanche: 'Avalanche — highest rate first'
+		snowball: 'Snowball, smallest balance first',
+		hybrid: 'Hybrid, smallest first, then optimise',
+		avalanche: 'Avalanche, highest rate first'
 	} as const;
 
 	let showNew = $state(false);
@@ -35,22 +35,19 @@
 	<main class="sheet"><p class="eyebrow">Not set up</p></main>
 {:else}
 	<main class="sheet">
+		<NavStrip />
+
 		<header class="masthead">
 			<div>
-				<p class="eyebrow">Debt</p>
-				<h1>Price the motivation, then choose</h1>
+				<h1>Debt</h1>
+				<p class="lede">
+					What you owe, and how to clear it faster. Clearing the smallest debt first costs more in
+					interest but keeps you going, so this screen prices that trade before you choose.
+				</p>
 			</div>
 		</header>
 
-		<ReviewNav />
-
 		{#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
-
-		<p class="lede">
-			You have a mathematically optimal order and a motivationally optimal one. Finishing a small
-			debt raises self-efficacy for the next, and that effect is real and measured — so is its cost.
-			This screen computes the cost and lets you buy the motivation knowingly.
-		</p>
 
 		<!-- The monthly extra is what makes any of this meaningful. -->
 		<form method="GET" class="extra">
@@ -72,13 +69,13 @@
 
 		{#if !data.plan}
 			<p class="empty">
-				No open debts. If you have some, add them below — the payoff order only matters once the app
+				No open debts. If you have some, add them below. The payoff order only matters once the app
 				can see the rates.
 			</p>
 		{:else}
 			{@const p = data.plan}
 			<section class="card">
-				<p class="eyebrow">Recommended — {MODE_LABEL[p.mode]}</p>
+				<p class="eyebrow">Recommended: {MODE_LABEL[p.mode]}</p>
 				<p class="rationale">{p.rationale}</p>
 
 				<!-- All three, always. You are entitled to buy the motivation knowingly. -->
@@ -97,7 +94,7 @@
 							{#each [{ key: 'avalanche', sim: p.avalanche }, { key: 'snowball', sim: p.snowball }, { key: 'hybrid', sim: p.hybrid }] as row (row.key)}
 								<tr class:chosen={p.mode === row.key}>
 									<th scope="row"
-										>{MODE_LABEL[row.key as keyof typeof MODE_LABEL].split(' — ')[0]}</th
+										>{MODE_LABEL[row.key as keyof typeof MODE_LABEL].split(', ')[0]}</th
 									>
 									<td>{money(row.sim.totalInterestMinor)}</td>
 									<td>{row.sim.stalled ? 'never' : months(row.sim.months)}</td>
@@ -116,7 +113,7 @@
 				{#if p.avalanche.stalled || p.snowball.stalled}
 					<p class="warn">
 						<span aria-hidden="true">!</span>
-						At this payment level the balance never clears — the minimums do not cover the interest. Raise
+						At this payment level the balance never clears: the minimums do not cover the interest. Raise
 						the monthly extra before reading the order.
 					</p>
 				{/if}
@@ -152,7 +149,7 @@
 							<tr>
 								<th scope="col">Debt</th>
 								<th scope="col">Balance</th>
-								<th scope="col">APR</th>
+								<th scope="col">APR (annual borrowing cost)</th>
 								<th scope="col">Minimum</th>
 								<th scope="col"><span class="sr-only">Payment</span></th>
 							</tr>
@@ -176,6 +173,17 @@
 													aria-label="Payment to {d.label}"
 												/>
 											</label>
+											<label class="visually-hidden" for="pay-src-{d.id}">Paid from</label>
+											<select
+												id="pay-src-{d.id}"
+												name="sourceAccountId"
+												aria-label="Paid from"
+												class="compact"
+											>
+												{#each data.buckets as b (b.id)}
+													<option value={b.id}>{b.name}</option>
+												{/each}
+											</select>
 											<button class="ghost small" type="submit">Pay</button>
 										</form>
 									</td>
@@ -185,7 +193,7 @@
 					</table>
 				</div>
 				<p class="muted">
-					Phase 2's exit is "nothing above ~10% APR remains" — the rates at or above that are
+					Phase 2 ends when nothing above ~10% APR remains. The rates at or above that are
 					marked. Paying one to zero closes it automatically.
 				</p>
 			{:else}
@@ -207,7 +215,7 @@
 							</span>
 						</label>
 						<label class="field">
-							<span class="field-label">APR %</span>
+							<span class="field-label">APR % (annual borrowing cost)</span>
 							<span class="field-input">
 								<input name="apr" type="number" step="0.1" min="0" required />
 							</span>
@@ -232,7 +240,7 @@
 					{#each data.closed as d (d.id)}
 						<li>
 							<span aria-hidden="true">✓</span>
-							{d.label} — cleared {d.closedOn?.slice(0, 10)}
+							{d.label}, cleared {d.closedOn?.slice(0, 10)}
 						</li>
 					{/each}
 				</ul>
@@ -242,6 +250,18 @@
 {/if}
 
 <style>
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0 0 0 0);
+		white-space: nowrap;
+		border: 0;
+	}
+
 	.muted {
 		color: var(--ink-muted);
 		font-size: 0.8125rem;

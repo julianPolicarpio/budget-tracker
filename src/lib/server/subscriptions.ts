@@ -270,12 +270,35 @@ export function cancelSubscription(userId: number, id: number, now: Date = new D
  * Re-arming matters. A subscription you decided to keep in 2027 is one you
  * should be asked about again in 2028 — the cull is not a one-time gate.
  */
-export function keepSubscription(userId: number, id: number, today: string): void {
+export function keepSubscription(userId: number, id: number, today: string): number {
 	const { db, owns } = forUser(userId);
 	const sub = getSubscription(userId, id);
-	if (!sub) return;
+	if (!sub) return 0;
 
-	const nextCharge = sub.nextChargeOn <= today ? advanceCharge(sub) : sub.nextChargeOn;
+	/*
+	 * Advance until the charge is actually in the future, and report how many
+	 * cycles went by.
+	 *
+	 * This used to take exactly one step. A subscription you had not opened in
+	 * three months therefore rolled from one past date to another past date,
+	 * and you had to press Keep once per missed cycle with nothing on screen
+	 * saying so. Lateness is the normal case for this screen, not the edge one:
+	 * you come back to it after a while, which is the whole reason the alert
+	 * state machine is row-keyed rather than date-keyed.
+	 *
+	 * The count is returned rather than swallowed so the screen can say what it
+	 * did. Silently jumping four months is the same failure in a nicer coat.
+	 */
+	let nextCharge = sub.nextChargeOn;
+	let skipped = 0;
+	// Every cadence step is a positive number of days or months, so this
+	// terminates. The cap is a seatbelt against a future zero-length cadence,
+	// not an expected path: 1000 weekly cycles is nineteen years.
+	const GUARD = 1000;
+	while (nextCharge <= today && skipped < GUARD) {
+		nextCharge = advanceCharge({ nextChargeOn: nextCharge, cadence: sub.cadence });
+		skipped++;
+	}
 	db.update(schema.subscription)
 		.set({
 			nextChargeOn: nextCharge,
@@ -288,6 +311,8 @@ export function keepSubscription(userId: number, id: number, today: string): voi
 		})
 		.where(and(owns(schema.subscription), eq(schema.subscription.id, id)))
 		.run();
+
+	return skipped;
 }
 
 export function markUsed(userId: number, id: number, today: string): void {

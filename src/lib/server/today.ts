@@ -34,6 +34,8 @@ export interface TodayEntry {
 	category: CategoryKey;
 	planned: boolean;
 	note: string | null;
+	/** Set when this row is money coming back on an earlier expense. */
+	refundOf: number | null;
 	enteredAt: string;
 }
 
@@ -160,6 +162,7 @@ export function todayContext(
 			amountLocalMinor: schema.txn.amountLocalMinor,
 			planned: schema.txn.planned,
 			note: schema.txn.note,
+			refundOf: schema.txn.refundOf,
 			enteredAt: schema.txn.enteredAt
 		})
 		.from(schema.txn)
@@ -173,8 +176,9 @@ export function todayContext(
 			category: r.category as CategoryKey,
 			planned: r.planned === 1,
 			note: r.note,
+			refundOf: r.refundOf,
 			enteredAt: r.enteredAt
-		}));
+			}));
 
 	// The whole log_day history: the streak needs the longest run, and one
 	// user's nightly rows are a few thousand strings even after a decade.

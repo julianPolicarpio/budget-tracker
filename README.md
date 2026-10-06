@@ -1,32 +1,204 @@
-# Split
+# Longhand
 
 **A budgeting app that refuses to show you your balance.**
 
-It is deliberately worse at everything budgeting apps compete on — live
-balances, rich categories, automatic import — because the field evidence says
-each of those measurably makes people spend more. The constraints below are
-load-bearing, not oversights, and most of them are enforced by a test rather
-than by remembering.
+Every other budgeting app competes on live balances, automatic bank import and
+rich category breakdowns. Longhand ships none of them, on purpose, because the
+field evidence says each one measurably makes people spend _more_. What it shows
+instead is a single band — _spend roughly ₱450–570 today_ — and a box to type
+what you just bought.
 
-[Try the demo](/demo) — the real app with ninety days of history in it, no
-email, deletes itself after a day.
+[Try the demo](/demo) — the real app with ninety days of history in it, no email,
+deletes itself after a day.
+
+```
+                    ₱450 – ₱570
+                       today
+
+              ┌──────────────────────┐
+              │  kape 65             │
+              └──────────────────────┘
+```
+
+That is the entire daily screen. No balance, no total, no progress bar, no
+"₱412 remaining". The absence is the product.
+
+The name is the argument. _Longhand_ means writing something out in full, by
+hand. It is the opposite of shorthand, and the opposite of doing it
+automatically. Every other app in this category competes on removing that step.
+The research says that step is the part that works.
+
+---
+
+## Why it exists
+
+I built this because the budgeting apps I used were making me worse with money,
+not better. Each one ended the same way. I had a clean, well-categorised record
+of my overspending, I checked it almost every day, and I never did anything
+about it.
+
+It turns out there is research on this, and it does not look good for the
+category. Pocheptsova Ghosh and Huang ran three field studies and two lab
+experiments on budget-tracking apps. People who tracked their spending from
+memory stayed inside their budgets. People who regularly checked an app
+**went over theirs by around a quarter to a third**, and the overspending
+happened mostly near the end of the budget period.
+
+The reason is the precision itself. When you only have a rough sense of where
+you are, you leave yourself a margin without thinking about it. When the screen
+says "₱412 left", that margin is gone. The number stops being information and
+becomes a target you are allowed to reach, and then a little past it.
+
+So Longhand does the opposite. It keeps the exact number from you. One band, one
+account, one minute of logging at night. The money is moved out of reach before
+you decide anything, instead of being measured after you already spent it.
+
+None of this is my personal opinion about budgeting. Every constraint in the app
+points back to a numbered finding (**F1**–**F14**) in
+[`split-combined-spec.md`](split-combined-spec.md). If you think a rule is
+wrong, the argument is with the study under it.
+
+## The paper it's built on
+
+If you only read one citation from this project, read this one:
+
+> **Soman, D. (2001). "Effects of Payment Mechanism on Spending Behavior: The
+> Role of Rehearsal and Immediacy of Payments."** _Journal of Consumer Research_
+> 27(4), 460–474. [doi:10.1086/319621](https://doi.org/10.1086/319621) ·
+> [full text](https://www-2.rotman.utoronto.ca/facbios/file/paymechjcr.pdf) ·
+> 466 citations
+
+Soman changed only one thing, the _payment mechanism_, and then measured what
+people did on the next purchase. A past payment held back the next one **only
+when the mechanism made the person write the amount down**. He calls this
+_rehearsal_. It also had to be money that left immediately, not later. In his
+first experiment, 160 students went through the same simulated month of
+expenses. The ones who paid by check, so they had to copy each amount by hand,
+later rated their likelihood of buying an extra item at 3.80, while the ones who
+paid the same amounts by credit card rated it 5.26 (F(1, 152) = 18.23, p <
+.001). Same money, same month. The only difference was whether they wrote the
+numbers down.
+
+This is why the app has no bank sync and will not get one. The typing is not
+extra work attached to the real intervention. The typing **is** the
+intervention. An automatic feed pulls in the transaction and quietly removes the
+one moment where you notice what you are doing, which is the only moment that
+does anything. A budgeting app with bank sync is the more impressive product and
+the weaker one. That trade is the whole point of this repository.
+
+Together with it, for the rule against per-category budgets:
+
+> **Heath, C. & Soll, J. B. (1996). "Mental Budgeting and Consumer Decisions."**
+> _Journal of Consumer Research_ 23(1), 40–52.
+> [doi:10.1086/209465](https://doi.org/10.1086/209465) · 764 citations
+
+People really do set budgets per category in their heads, and they really do
+track against them. The problem is that a budget cannot predict which
+opportunities will actually come up, so the category itself causes two
+failures: spending too much, and the quieter one, refusing something that was
+worth it because the wrong envelope was empty. Splitting a spending budget into
+categories also gives you an accounting excuse for almost any purchase. This is
+why the eight categories here are only for the weekly review and carry no
+budgets at all.
+
+The rest of the evidence is in [Part One of the spec](split-combined-spec.md),
+with a forty-entry reference list at the end: the Drexler, Fischer and Schoar
+rule-of-thumb RCT, Madrian and Shea on defaults, the Ashraf, Karlan and Yin
+commitment-savings experiment here in the Philippines, Soman and Cheema on
+partitioning, and the Harkin et al. meta-analysis on monitoring.
+
+**One honest caveat, because a reviewer would find it anyway.** The
+_range-instead-of-a-number_ rule rests on Pocheptsova Ghosh and Huang, and that
+is a Think Forward Initiative and CEPR working paper, not a peer-reviewed
+article. Heath and Soll covers the no-categories half on its own. The band
+itself is a design bet on one unrefereed source. The spec says so in the same
+words.
 
 ## The seven rules
 
-| # | The rule | Why it is not an oversight |
-|---|---|---|
-| 1 | The daily screen never shows a balance | Seeing a large balance reliably makes people spend more. `todayView()` has no field for one, so adding it is a compile error rather than a code-review conversation. |
-| 2 | The daily number is a range, not a number | "₱103 left" reads as permission to spend ₱103, then a little past it. A range has no edge to spend up to. |
-| 3 | You type every purchase yourself | No bank, card or e-wallet sync, ever. The typing is the mechanism; automatic tracking removes the one moment where you notice. |
-| 4 | Eight category roots, and no budget on any of them | Subdividing a spending budget is the one intervention that measurably backfired. Categories exist for the weekly review and nothing else. |
-| 5 | Underspending does not raise tomorrow's number | Set once when the week opens and frozen. `dailyAllowance()` takes no `daysRemaining` parameter, and that absence is the point. |
-| 6 | A 15% cushion comes off the top, hidden | People cannot hold a mental buffer, so the app holds it structurally and sweeps it to savings at the close. |
-| 7 | Bills never touch your spending money | Commitments are reserved before the daily figure is computed. A cost you cannot decline has no business competing with a coffee. |
+| #   | The rule                                           | Why it is not an oversight                                                                                                                                           |
+| --- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | The daily screen never shows a balance             | Seeing a large balance reliably makes people spend more. `todayView()` has no field for one, so adding it is a compile error rather than a code-review conversation. |
+| 2   | The daily number is a range, not a number          | "₱103 left" reads as permission to spend ₱103, then a little past it. A range has no edge to spend up to.                                                            |
+| 3   | You type every purchase yourself                   | No bank, card or e-wallet sync, ever. The typing is the mechanism (Soman 2001); automatic tracking removes the one moment where you notice.                          |
+| 4   | Eight category roots, and no budget on any of them | Subdividing a spending budget is the one intervention that measurably backfired. Categories exist for the weekly review and nothing else.                            |
+| 5   | Underspending does not raise tomorrow's number     | Set once when the week opens and frozen. `dailyAllowance()` takes no `daysRemaining` parameter, and that absence is the point.                                       |
+| 6   | A 15% cushion comes off the top, hidden            | People cannot hold a mental buffer, so the app holds it structurally and sweeps it to savings at the close.                                                          |
+| 7   | Bills never touch your spending money              | Commitments are reserved before the daily figure is computed. A cost you cannot decline has no business competing with a coffee.                                     |
 
 Rule 4 was relaxed once, deliberately and on the record: categories may now
-*grow*, as leaves under the eight fixed roots, because the finding it rests on
+_grow_, as leaves under the eight fixed roots, because the finding it rests on
 prohibits attaching **budgets** to categories — which stays absolute — not
 having more labels. The reasoning is in the design notes.
+
+## Who this is for
+
+**This will probably work for you if** you have already tried a few budgeting
+apps and stopped using all of them. If your real problem is the small day-to-day
+spending and not that you do not know your income. If you can give it one minute
+at night and about fifteen minutes once a week. And especially if you are the
+kind of person who checks a balance, sees that there is still room, and treats
+that room as permission. That last one is the exact habit this app was built
+against, and it is the one I have.
+
+**This will not work for you if** you want your spending tracked without you
+doing anything. The participation is the active ingredient here. Take it out and
+there is nothing left. It is also the wrong tool for couples or any shared
+budget, because it is single-user by design, and the wrong tool for business
+accounting or for anyone who needs a live balance for an actual operational
+reason. And if you are someone who genuinely budgets well by category, then
+based on Heath and Soll you are the exception, and you should keep doing what
+already works for you.
+
+## Features
+
+- **The band.** One range per day, computed once at period open from the
+  allocation and then frozen — `spend_alloc ÷ days × (1 − haircut)`. It does not
+  go up because you were good yesterday.
+- **Sixty-second logging.** Amount → category → planned/unplanned → save. Typed
+  entry parses `kape 65` into a transaction and `wifi bill 750` into a
+  commitment, and refuses to guess when the record _type_ is ambiguous.
+- **The weekly money date.** Six resumable steps, about fifteen minutes, ending
+  in a snapshot and one shareable line: `Week 32: spent ₱3,585 · unplanned 68% ·
+buffer 3.1 weeks · streak 11`.
+- **The irregulars engine.** An event-by-event list of exceptional costs rather
+  than a monthly average, every estimate padded 25%, accrued before the cost
+  lands, with forced three-way reconciliation and no dismiss button.
+- **The Money Map.** Five accounts, the split drawn once, a transfer checklist,
+  and every open IOU listed individually — never summarised into a count.
+- **Trip Mode.** The hero inverts on a trip: a precise figure, in local currency,
+  divided by days _remaining_. Local amount is the source of truth; the home
+  figure is derived at the locked effective rate. None of it touches your
+  metrics.
+- **The debt price switch.** Avalanche, snowball and hybrid costs side by side,
+  with the recommendation marked and the price of choosing motivation shown.
+- **The phase engine.** Five phases with machine-checkable exits. It proposes and
+  never advances on its own, because a phase change moves real money.
+- **Streaks that count logged days, not spending days.** A zero-spend night filed
+  as "nothing to log" is a full day of streak.
+- **Self-hosted, one container, one file.** SQLite in WAL mode, real reviewable
+  SQL migrations, a nightly backup whose restore path is exercised by the test
+  suite rather than only in an emergency.
+
+## For reviewers: what's worth looking at
+
+If you are reading this to assess the engineering rather than to use the app,
+the four things I would point at are the **type-level withholding guard**
+(`src/lib/server/withholding.ts` — the product's central rule enforced by the
+compiler, and the guard type-tests itself so a refactor that neuters it fails the
+build), the **tenancy choke point** (`forUser(userId)`, with the unscoped handle
+never exported and a two-tenant leak test gating every public step), the **shared
+txn selector** that carries `AND trip_id IS NULL` so no individual metric has to
+remember it, and `src/lib/allowance.ts`, where two nearly-identical functions sit
+side by side with comments explaining why unifying them is the bug.
+
+> **A note on the name.** The codebase still carries the working name `split` —
+> `data/split.db`, `SPLIT_ORIGIN`, the compose service, the schema. Every command
+> below is accurate as written. The identifiers are staying put deliberately
+> rather than pending: `split` also names the app's core mechanic — _split on
+> arrival_, split resolution, the ordered waterfall — so the code reads correctly
+> under either name, and a rename of the running system for cosmetic reasons is
+> exactly the kind of change this project's own guidelines argue against.
 
 ## The parts worth reading
 
@@ -56,7 +228,7 @@ there is no merge and no conflict resolution.
 **Money is integer minor units everywhere.** No floats, no `parseFloat` outside
 `src/lib/money`.
 
-**Migrations are real, reviewable SQL** with a prose header saying *why*, applied
+**Migrations are real, reviewable SQL** with a prose header saying _why_, applied
 once each inside a transaction, with `PRAGMA foreign_key_check` read afterwards
 and an orphaned reference treated as fatal.
 
@@ -77,9 +249,10 @@ why.
 npm install
 npm run db:migrate
 npm run db:init -- --currency PHP --symbol ₱ --tz Asia/Manila --period weekly --take-home 6000
-npm run period:open -- --alloc 4200 --days 7
 npm run dev
 ```
+
+Sign in and answer the five questions at `/setup`.
 
 `--alloc` is the Spend allocation for the whole period, in major units. The
 daily number is derived from it once, at period open, and frozen:
@@ -273,7 +446,7 @@ moment, and destroying the damaged original destroys the evidence.
 | `migrations/*.sql`                 | Real, readable SQL, one file per phase. No silent schema push.                                        |
 | `scripts/migrate.js`               | Applies migrations once each, one transaction apiece                                                  |
 | `scripts/init.js`                  | Writes the single `settings` row                                                                      |
-| `scripts/open-period.js`           | Opens (or supersedes) a period                                                                        |
+| `/setup`                           | Opens (or supersedes) a period, in the browser                                                        |
 | `scripts/backup.js` · `restore.js` | The manual handles for the nightly job                                                                |
 | `src/lib/money.ts`                 | Integer minor units. The only place money is parsed.                                                  |
 | `src/lib/allowance.ts`             | `dailyAllowance()` and `displayBand()` — shared, so the R5 preview cannot drift from what gets frozen |
@@ -318,10 +491,8 @@ you should overrule if you disagree:
   behaviour is stale on arrival and must be verified on your own device — so
   this is worth building _after_ you know you need it, against a phone you have
   tested.
-- **The 7-day setup wizard** (Spec §8.5). Setup currently happens through
-  `db:init` and `period:open`, which you have already run. A wizard that
-  replaces three commands you will use once is the lowest-value thing in the
-  phase.
+- **The 7-day setup wizard** (Spec §8.5). Setup already happens in the browser,
+  through the five questions at `/setup`.
 
 ### The one real gap
 
@@ -410,8 +581,9 @@ than any managed platform's convenience.
 docker compose up -d
 docker compose exec split node scripts/init.js \
   --currency PHP --symbol ₱ --tz Asia/Manila --period weekly --take-home 6000
-docker compose exec split node scripts/open-period.js --alloc 4200 --days 7
 ```
+
+Sign in and answer the five questions at `/setup`.
 
 Migrations run at container start, so a container that is up is a container
 whose schema is current. `GET /api/health` is the container health check and
@@ -419,7 +591,7 @@ returns nothing but `{"ok":true}`.
 
 ### The bind address, and what replaced it
 
-**This changed.** Split used to have no login, so the bind address *was* the
+**This changed.** Longhand used to have no login, so the bind address _was_ the
 security control — invariant 10, and `scripts/serve.js` enforced it by refusing
 to start on a public interface.
 
@@ -482,3 +654,17 @@ No reverse proxy, no TLS termination, no secrets manager, no orchestration.
 Tailscale supplies the network and the TLS; everything else would be
 infrastructure this app does not have a problem for (Spec §12,
 over-engineering).
+
+## References
+
+The design is downstream of these. Full list, with the findings each one forces,
+in [Part One of the spec](split-combined-spec.md).
+
+- **Soman, D. (2001).** [Effects of Payment Mechanism on Spending Behavior: The Role of Rehearsal and Immediacy of Payments](https://academic.oup.com/jcr/article-abstract/27/4/460/1810425). _Journal of Consumer Research_ 27(4), 460–474. [doi:10.1086/319621](https://doi.org/10.1086/319621) — **the anchor paper.** Writing the amount down is what suppresses the next purchase. Rule 3.
+- **Heath, C. & Soll, J. B. (1996).** [Mental Budgeting and Consumer Decisions](https://academic.oup.com/jcr/article-abstract/23/1/40/1892763). _JCR_ 23(1), 40–52. [doi:10.1086/209465](https://doi.org/10.1086/209465) — per-category budgets cause both over- and under-consumption. Rule 4.
+- **Pocheptsova Ghosh, A. & Huang, L. (2022).** _Dynamic Budget Monitoring: When Access to Budget Feedback Leads to Increase in Spending._ Think Forward Initiative / CEPR technical report ([PDF](https://cepr.org/system/files/2022-08/Dynamic%20Budget%20Monitoring%20-%20When%20Access%20to%20Budget%20Feedback%20Leads%20to%20Increase%20in%20Spending%20-%20Anastasiya%20Pocheptsova%20Ghosh%20&%20Liang%20Huang.pdf)) — app users overspent by ~26–33%; a range helped, subdividing backfired. Rules 1 and 2. **Working paper, not peer-reviewed.**
+- **Drexler, A., Fischer, G. & Schoar, A. (2014).** [Keeping It Simple: Financial Literacy and Rules of Thumb](https://www.aeaweb.org/articles?id=10.1257/app.6.2.1). _AEJ: Applied_ 6(2) — rule-of-thumb training beat formal accounting, most of all for the least motivated. The IOU rule.
+- **Ashraf, N., Karlan, D. & Yin, W. (2006).** [Tying Odysseus to the Mast: Evidence from a Commitment Savings Product in the Philippines](https://academic.oup.com/qje/article-abstract/121/2/635/1884028). _QJE_ 121(2) — balances up 82% at twelve months; take-up only 28%. The deliberately inconvenient account.
+- **Soman, D. & Cheema, A. (2011).** [Earmarking and Partitioning: Increasing Saving by Low-Income Households](https://www-2.rotman.utoronto.ca/facbios/file/earmarking-jmrPP.pdf). _JMR_ 48(SPL) — partition _savings_, never the spending budget. Named goals.
+- **Sussman, A. & Alter, A. (2012).** [The Exception Is the Rule: Underestimating and Overspending on Exceptional Expenses](https://doi.org/10.1086/665833). _JCR_ 39(4), 800–814 — every irregular feels like a one-off; in aggregate they are predictable. The irregulars engine.
+- **Harkin, B. et al. (2016).** [Does Monitoring Goal Progress Promote Goal Attainment?](https://pubmed.ncbi.nlm.nih.gov/26479070/) _Psychological Bulletin_ 142(2) — d ≈ 0.40, moderated by _physically recording_ the number. The weekly review artefact.

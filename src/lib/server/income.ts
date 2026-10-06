@@ -4,8 +4,8 @@
  * Invariant 7 names `projectArrivals()` as the only path to a claim about
  * arrival DATES, and this file is where it lives. Until it existed,
  * `projectArrivals()` was only a warning in a comment about a function nobody
- * had written, which is why `spend_alloc_minor` had to be hand-typed into
- * `open-period.js --alloc` and three of the five transfer instructions on the
+ * had written, which is why `spend_alloc_minor` had to be hand-typed at setup
+ * and three of the five transfer instructions on the
  * Accounts page were never computed.
  *
  * Spec §3.3 adds a second path, deliberately, after the first version of this

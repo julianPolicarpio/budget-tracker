@@ -31,6 +31,23 @@ export const appUser = sqliteTable('app_user', {
 	deletedAt: text('deleted_at')
 });
 
+export const actionRequest = sqliteTable(
+	'action_request',
+	{
+		id: integer('id').primaryKey({ autoIncrement: true }),
+		userId: integer('user_id').notNull(),
+		clientUuid: text('client_uuid').notNull(),
+		operation: text('operation').notNull(),
+		inputHash: text('input_hash').notNull(),
+		resultJson: text('result_json').notNull(),
+		createdAt: text('created_at').notNull()
+	},
+	(t) => [
+		uniqueIndex('idx_action_request_user_uuid').on(t.userId, t.clientUuid),
+		index('idx_action_request_user').on(t.userId)
+	]
+);
+
 export const settings = sqliteTable(
 	'settings',
 	{
@@ -107,7 +124,11 @@ export const txn = sqliteTable(
 		source: text('source', { enum: ['cash', 'ewallet', 'card', 'bank', 'unknown'] })
 			.notNull()
 			.default('unknown'),
-		leafId: integer('leaf_id')
+		leafId: integer('leaf_id'),
+		// Migration 0015 (A3.3): a refund's link to the expense txn it returns.
+		// A refund lowers spending on the original's category; it never appears
+		// as earned income.
+		refundOf: integer('refund_of')
 	},
 	(t) => [
 		index('idx_txn_date').on(t.spentOn),
@@ -156,6 +177,13 @@ export const transfer = sqliteTable('transfer', {
 	fromAccountId: integer('from_account_id').notNull(),
 	toAccountId: integer('to_account_id').notNull(),
 	amountMinor: integer('amount_minor').notNull(),
+	// Migration 0015 (A3.1): the optional fee is a real spending txn with its
+	// own paying account; the transfer points at it. Principal never is a txn.
+	feeTxnId: integer('fee_txn_id'),
+	// A3.6: a retried submit after an uncertain response must not record the
+	// move twice. Nullable; uniqueness lives in a partial index (SQLite cannot
+	// ADD a UNIQUE column).
+	clientUuid: text('client_uuid'),
 	iouReason: text('iou_reason'),
 	iouRepayBy: text('iou_repay_by'),
 	repaidAt: text('repaid_at'),
@@ -303,8 +331,56 @@ export const debtPayment = sqliteTable('debt_payment', {
 	debtId: integer('debt_id').notNull(),
 	paidOn: text('paid_on').notNull(),
 	amountMinor: integer('amount_minor').notNull(),
+	// Migration 0015 (A3.3): the account the payment draws from. Nullable
+	// because older rows were recorded before sources existed.
+	sourceAccountId: integer('source_account_id'),
 	userId: integer('user_id').notNull().default(1)
 });
+
+/**
+ * The reservation ledger (migration 0015, A3.2) — append-only.
+ *
+ * A reservation never moves money between buckets; it partitions one bucket's
+ * balance and promises it to exactly one planned expense, so the same money
+ * cannot fund two expenses. Reserved-for-expense =
+ * sum(fund) − sum(release) − sum(consume). Funding history is read from these
+ * rows, never reconstructed.
+ */
+export const expenseReservation = sqliteTable(
+	'expense_reservation',
+	{
+		id: integer('id').primaryKey({ autoIncrement: true }),
+		irregularId: integer('irregular_id').notNull(),
+		accountId: integer('account_id').notNull(),
+		kind: text('kind', { enum: ['fund', 'release', 'consume'] }).notNull(),
+		amountMinor: integer('amount_minor').notNull(),
+		note: text('note'),
+		clientUuid: text('client_uuid'),
+		createdAt: text('created_at').notNull(),
+		userId: integer('user_id').notNull()
+	},
+	(t) => [index('idx_expense_reservation_user').on(t.userId, t.irregularId)]
+);
+
+/**
+ * The correction audit trail (migration 0015, A3.3): an asserted balance is a
+ * correction with a remembered before and after, never an inferred income or
+ * expense. Rows are append-only; history is never rewritten.
+ */
+export const balanceCorrection = sqliteTable(
+	'balance_correction',
+	{
+		id: integer('id').primaryKey({ autoIncrement: true }),
+		accountId: integer('account_id').notNull(),
+		oldMinor: integer('old_minor').notNull(),
+		newMinor: integer('new_minor').notNull(),
+		correctedOn: text('corrected_on').notNull(),
+		note: text('note'),
+		createdAt: text('created_at').notNull(),
+		userId: integer('user_id').notNull()
+	},
+	(t) => [index('idx_balance_correction_user').on(t.userId, t.accountId)]
+);
 
 export const rule = sqliteTable('rule', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
@@ -535,3 +611,33 @@ export const incomeSource = sqliteTable(
 );
 
 export type IncomeSource = typeof incomeSource.$inferSelect;
+
+/**
+ * A real income arrival (effect-matrix op 2, migration 0016 / A6).
+ *
+ * Not a txn row: an arrival is not income *reporting*. It moves one balance
+ * up and touches nothing else — no schedule, no allowance, no category. The
+ * daily guide never changes because money arrived (invariant 10); what the
+ * user does with the money afterwards (allocation, op 4) is a separate,
+ * visible operation.
+ */
+export const incomeArrival = sqliteTable(
+	'income_arrival',
+	{
+		id: integer('id').primaryKey({ autoIncrement: true }),
+		arrivedOn: text('arrived_on').notNull(),
+		amountMinor: integer('amount_minor').notNull(),
+		accountId: integer('account_id').notNull(),
+		sourceId: integer('source_id'),
+		note: text('note'),
+		clientUuid: text('client_uuid'),
+		enteredAt: text('entered_at').notNull(),
+		userId: integer('user_id').notNull().default(1)
+	},
+	(t) => [index('idx_arrival_user_date').on(t.userId, t.arrivedOn)]
+);
+
+export type IncomeArrival = typeof incomeArrival.$inferSelect;
+
+export type ExpenseReservation = typeof expenseReservation.$inferSelect;
+export type BalanceCorrection = typeof balanceCorrection.$inferSelect;

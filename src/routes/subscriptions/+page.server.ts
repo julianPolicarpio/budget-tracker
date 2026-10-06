@@ -1,5 +1,6 @@
 import { fail, type Actions } from '@sveltejs/kit';
 import { loadSettings } from '$lib/server/today';
+import * as panels from '$lib/server/panel-forms';
 import { openPeriodOn } from '$lib/server/rollover';
 import { localToday, daysBetween } from '$lib/server/clock';
 import { parseMoney } from '$lib/money';
@@ -89,7 +90,7 @@ export const actions: Actions = {
 
 		const nextChargeOn = String(form.get('nextChargeOn') ?? '');
 		if (!isDate(nextChargeOn)) {
-			return fail(400, { field: 'nextChargeOn', error: 'Give the next charge date.' });
+			return fail(400, { field: 'nextChargeOn', error: 'Give the billing date.' });
 		}
 
 		const isTrial = form.get('isTrial') === '1';
@@ -140,59 +141,12 @@ export const actions: Actions = {
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 
 		const form = await request.formData();
-		const label = String(form.get('label') ?? '').trim();
-		if (!label) return fail(400, { field: 'quickLabel', error: 'Name it.' });
+		const result = await panels.quickAddBill(locals.userId, form, settings);
 
-		const amountMinor = parseMoney(String(form.get('amount') ?? ''), settings.minorUnits);
-		if (amountMinor === null || amountMinor <= 0) {
-			return fail(400, { field: 'quickAmount', error: 'Enter the charge, like 750.' });
-		}
-
-		const cadence = String(form.get('cadence') ?? 'monthly') as Cadence;
-		if (!CADENCES.includes(cadence)) return fail(400, { error: 'Pick how often it bills.' });
-
-		const isEssential = form.get('isEssential') === '1';
-		const today = localToday(settings.timezone);
-
-		/*
-		 * "Free until" is the whole entry for a trial, and trials are the common
-		 * case — a free AI offer is free today and priced later, so the only
-		 * date that matters is the one where that flips. Without this the quick
-		 * path records a trial as though it were already billing, which reserves
-		 * real money in Bills against a charge of ₱0.
-		 */
-		const rawFreeUntil = String(form.get('freeUntil') ?? '').trim();
-		if (rawFreeUntil && !isDate(rawFreeUntil)) {
-			return fail(400, { field: 'freeUntil', error: 'Give a real date, or leave it blank.' });
-		}
-		const nextChargeOn = rawFreeUntil || advanceCharge({ nextChargeOn: today, cadence });
-
-		// Spec §7.3: a trial used to force a flat 30-day lead regardless of how
-		// long the trial itself ran, so a 7-day trial's first warning fired the
-		// moment it was recorded and its second warning fired the very next
-		// sweep — both alerts inside 48 hours, then silence until the charge
-		// landed. The lead is now a fraction of the trial's own length, read
-		// off how far the deadline is *today* (`daysBetween`), not the fixed
-		// cadence default that assumes a bill's usual gap between charges. A
-		// non-trial quick-add keeps exactly the prior behaviour.
-		const { leadDays, finalLeadDays } = rawFreeUntil
-			? trialAlertDays(daysBetween(today, rawFreeUntil))
-			: { leadDays: DEFAULT_LEAD_DAYS[cadence], finalLeadDays: FINAL_ALERT_DAYS };
-
-		createSubscription(locals.userId, {
-			label,
-			amountMinor,
-			cadence,
-			nextChargeOn,
-			trialEndsOn: rawFreeUntil || null,
-			// Non-negotiable: nothing to decide, so no deadline and no alerts.
-			// Discretionary: the renewal IS the decision point (Spec §374).
-			cancelByOn: isEssential ? null : nextChargeOn,
-			leadDays,
-			finalLeadDays,
-			isEssential
-		});
-		return { added: true };
+		// This route never redirected on quick-add (the panel lives here), so
+		// success just returns the payload; only the failure half needs map.
+		if ('fail' in result) return fail(result.fail[0], result.fail[1]);
+		return result.data;
 	},
 
 	/**
@@ -231,7 +185,7 @@ export const actions: Actions = {
 
 		const nextChargeOn = String(form.get('nextChargeOn') ?? '');
 		if (!isDate(nextChargeOn)) {
-			return fail(400, { id, field: 'nextChargeOn', error: 'Give the next charge date.' });
+			return fail(400, { id, field: 'nextChargeOn', error: 'Give the billing date.' });
 		}
 
 		const rawTrialEnds = String(form.get('trialEndsOn') ?? '').trim();
@@ -287,8 +241,14 @@ export const actions: Actions = {
 		if (!settings) return fail(409, { error: 'Split is not initialised yet.' });
 		const id = Number((await request.formData()).get('id'));
 		if (!Number.isInteger(id)) return fail(400, { error: 'Unknown subscription.' });
-		keepSubscription(locals.userId, id, localToday(settings.timezone));
-		return { kept: true };
+		/*
+		 * `skipped` is how many charge cycles went by while this was left
+		 * alone. The screen says so rather than silently jumping the date four
+		 * months, which looked identical to the old bug where Keep appeared to
+		 * do nothing at all.
+		 */
+		const skipped = keepSubscription(locals.userId, id, localToday(settings.timezone));
+		return { kept: true, skipped };
 	},
 
 	cancel: async ({ request, locals }) => {

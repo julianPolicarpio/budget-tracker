@@ -1,5 +1,5 @@
 <script lang="ts">
-	import ReviewNav from '$lib/components/ReviewNav.svelte';
+	import NavStrip from '$lib/components/NavStrip.svelte';
 	import { enhance } from '$app/forms';
 	import { formatMoney } from '$lib/money';
 	import type { ActionData, PageData } from './$types';
@@ -30,23 +30,20 @@
 	<main class="sheet"><p class="eyebrow">Not set up</p></main>
 {:else}
 	<main class="sheet">
+		<NavStrip />
+
 		<header class="masthead">
 			<div>
-				<p class="eyebrow">If-then plans &amp; the 72-hour list</p>
-				<h1>The rules that replace judgement</h1>
+				<h1>Wishlist and rules</h1>
+				<p class="lede">
+					Park a want for 72 hours before buying it, and write your own if-then rules for the
+					moments you already know you slip. A rule works best when the cue is something you will
+					actually notice and the action starts within seconds of it.
+				</p>
 			</div>
 		</header>
 
-		<ReviewNav />
-
 		{#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
-
-		<p class="lede">
-			Implementation intentions run at d = 0.65 across 94 tests — the largest effect in this whole
-			system, larger than monitoring and larger than financial education. The format is what carries
-			it: the cue has to be an event you will actually notice, and the action has to start within
-			seconds of it.
-		</p>
 
 		<!-- ── The 72-hour list ─────────────────────────────────────────── -->
 		<section class="block">
@@ -104,8 +101,9 @@
 
 			{#if data.ripe.length === 0 && data.waiting.length === 0}
 				<p class="empty">
-					Nothing on the list. Anything unplanned and over your daily allowance goes here for 72
-					hours first — most items die on the list, and the ones that survive you buy guilt-free.
+					Nothing on the list. Anything unplanned that goes over your daily range lands here for 72
+					hours first. That range is a guide, not a limit. Most items die on the list, and the
+					ones that survive you buy guilt-free.
 				</p>
 			{/if}
 
@@ -192,7 +190,7 @@
 			{#if showNew}
 				<form method="POST" action="?/upsert" use:enhance class="card">
 					<label class="field">
-						<span class="field-label">If — a cue you will actually notice</span>
+						<span class="field-label">If (a cue you will actually notice)</span>
 						<span class="field-input">
 							<input
 								name="cue"
@@ -203,7 +201,7 @@
 						</span>
 					</label>
 					<label class="field">
-						<span class="field-label">Then — specific, starting immediately</span>
+						<span class="field-label">Then (specific, starting immediately)</span>
 						<span class="field-input">
 							<input
 								name="action"
