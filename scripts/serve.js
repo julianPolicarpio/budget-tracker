@@ -12,9 +12,27 @@ import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyMigrations } from './apply-migrations.js';
+import { assertDemoDatabase, demoModeEnabled } from './demo-guard.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const dbPath = process.env.DATABASE_URL ?? join(root, 'data', 'split.db');
+
+// ─── The demo guard, before anything touches the database ────────────────
+//
+// The built server checks demo mode too, but only once it is imported at the
+// bottom of this file, after the migrations below have already opened and
+// written to DATABASE_URL. So the check runs here first. The live data dir
+// comes from this file's location, never from the cwd, which is "/" under a
+// launchd job with no WorkingDirectory. demoModeEnabled() runs even when the
+// demo is off, so SPLIT_DEMO_MODE=true exits instead of starting single-user.
+try {
+	// DATABASE_URL, not dbPath: with it unset, dbPath falls back to the real
+	// database, and the refusal should say "unset", not "inside data/".
+	if (demoModeEnabled(process.env)) assertDemoDatabase(process.env.DATABASE_URL, join(root, 'data'));
+} catch (err) {
+	console.error(err instanceof Error ? err.message : String(err));
+	process.exit(1);
+}
 
 // ─── The bind address, and what replaced it ───────────────────────────────
 //
