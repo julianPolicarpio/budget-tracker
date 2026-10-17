@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chooseThresholds, isDangerousOpen, summarise, type EvalRow } from './laya-eval';
+import { AUTO_OPEN_CANDIDATES, NEVER_AUTO_OPEN, chooseThresholds, isDangerousOpen, summarise, type EvalRow } from './laya-eval';
 
 function row(p: Partial<EvalRow>): EvalRow {
 	return {
@@ -47,8 +47,8 @@ describe('chooseThresholds', () => {
 		];
 		const t = chooseThresholds([...good, ...badRefund], 3);
 		expect(t.allowed).toEqual(['add-bill-subscription']);
-		expect(t.probability).toBeLessThanOrEqual(0.8);
-		expect(t.margin).toBeLessThanOrEqual(0.4);
+		expect(t.probability).toBe(0.8);
+		expect(t.margin).toBe(0.4);
 	});
 	it('never allows a never-auto-open id however confident', () => {
 		const rows = Array.from({ length: 6 }, () => row({ expected: 'add-debt', decided: 'add-debt', tag: 'debt', probability: 1, margin: 1 }));
@@ -56,5 +56,34 @@ describe('chooseThresholds', () => {
 	});
 	it('returns an empty allowlist when nothing qualifies', () => {
 		expect(chooseThresholds([row({})], 3).allowed).toEqual([]);
+	});
+	it('refuses a class with one dangerous open even at 95.2% precision', () => {
+		const rows = [
+			...Array.from({ length: 20 }, () => row({})),
+			row({ expected: 'log-spending', tag: 'plain-spending' })
+		];
+		expect(chooseThresholds(rows, 3).allowed).toEqual([]);
+	});
+	it('still allows a class whose only wrong open is non-dangerous', () => {
+		const rows = [
+			...Array.from({ length: 20 }, () => row({ expected: 'add-trip', decided: 'add-trip', tag: 'trip' })),
+			row({ expected: 'create-planned-expense', decided: 'add-trip', tag: 'plan' })
+		];
+		expect(chooseThresholds(rows, 3).allowed).toEqual(['add-trip']);
+	});
+	it('ignores a model row with a null margin instead of counting it as an open', () => {
+		const rows = [
+			...Array.from({ length: 5 }, () => row({ probability: 0.8, margin: 0 })),
+			row({ expected: 'log-spending', tag: 'plain-spending', probability: 0.9, margin: null })
+		];
+		const t = chooseThresholds(rows, 3);
+		expect(t.allowed).toEqual(['add-bill-subscription']);
+		expect(t.perClass['add-bill-subscription'].dangerous).toBe(0);
+	});
+});
+
+describe('auto-open lists', () => {
+	it('no auto-open candidate is in NEVER_AUTO_OPEN', () => {
+		expect(AUTO_OPEN_CANDIDATES.filter((id) => NEVER_AUTO_OPEN.has(id))).toEqual([]);
 	});
 });
