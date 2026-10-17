@@ -104,4 +104,20 @@ describe('POST /api/intent', () => {
 		expect(await response.json()).toEqual({ kind: 'choices', actionIds: ['record-refund', 'add-bill-subscription', 'add-debt'] });
 		vi.unstubAllGlobals();
 	});
+
+	it('keeps a dangerous model answer as choices even at probability 1', async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => Response.json({ id: 'transfer-money', probability: 1, margin: 1 })));
+		const response = await post({ text: 'help me organise this' });
+		expect((await response.json()).kind).toBe('choices');
+		vi.unstubAllGlobals();
+	});
+
+	it('opens a reviewed form when an allowed answer clears both thresholds', async () => {
+		const { AUTO_OPEN } = await import('$lib/actions/auto-open');
+		const id = AUTO_OPEN.allowed[0];
+		vi.stubGlobal('fetch', vi.fn(async () => Response.json({ id, probability: 1, margin: 1 })));
+		const response = await post({ text: 'help me organise this' });
+		expect(await response.json()).toMatchObject({ kind: 'action', actionId: id });
+		vi.unstubAllGlobals();
+	});
 });

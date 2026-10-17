@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { resolveProtectedIntent } from '$lib/actions/intent';
+import { shouldAutoOpen } from '$lib/actions/auto-open';
+import { draftForAction, resolveProtectedIntent } from '$lib/actions/intent';
 import { fallbackChoices, modelOptions, routedChoices } from '$lib/actions/routing';
 import { buildParseContext } from '$lib/server/entry';
 import { classifyWithLaya } from '$lib/server/laya-client';
@@ -48,8 +49,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 	const proposal = await classifyWithLaya(text, modelOptions(text));
 
-	// A model-only suggestion stays a choice until Split-specific accuracy
-	// has been measured. Its result can affect which three forms are offered,
-	// but catalogue order remains stable and no form opens automatically.
+	// A model answer opens a reviewed form only through shouldAutoOpen (measured
+	// allowlist and thresholds). Anything else only affects which three forms are
+	// offered. Nothing is written without a submit.
+	if (proposal && shouldAutoOpen(proposal)) {
+		return json({ kind: 'action' as const, actionId: proposal.id, draft: draftForAction(proposal.id, text, settings.minorUnits) });
+	}
+
 	return choicesResponse(routedChoices(proposal?.id ?? null, text));
 };
