@@ -20,6 +20,15 @@ describe('routing helpers', () => {
 		expect(options.map((o) => o.id)).not.toContain('log-spending');
 	});
 
+	it('uses each action\'s model description when asked, else its label', () => {
+		const options = modelOptions('help me organise this', 'descriptions');
+		for (const o of options.slice(0, -1)) {
+			const a = CATALOGUE.find((x) => x.id === o.id)!;
+			expect(o.description).toBe(a.modelDescription ?? a.label);
+		}
+		expect(options.slice(0, -1).some((o) => o.description !== CATALOGUE.find((x) => x.id === o.id)!.label)).toBe(true);
+	});
+
 	it('puts a model answer first among the routed choices, in catalogue order', () => {
 		const choices = routedChoices('record-refund', 'help me organise this');
 		expect(choices).toContain('record-refund');

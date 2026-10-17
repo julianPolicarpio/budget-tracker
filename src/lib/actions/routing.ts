@@ -35,10 +35,15 @@ export function fallbackChoices(text: string): string[] {
 	return catalogueOrder([...matchingActionIds(text), ...DEFAULT_CHOICES]).slice(0, CHOICE_LIMIT);
 }
 
-export function modelOptions(text: string, _criteria: Criteria = 'labels'): { id: string; description: string }[] {
+function describe(id: string, criteria: Criteria): string {
+	const action = CATALOGUE.find((a) => a.id === id)!;
+	return criteria === 'descriptions' ? (action.modelDescription ?? action.label) : action.label;
+}
+
+export function modelOptions(text: string, criteria: Criteria = 'labels'): { id: string; description: string }[] {
 	const ids = catalogueOrder([...matchingActionIds(text), ...DEFAULT_MODEL_OPTIONS]).slice(0, 7);
 	return [
-		...ids.map((id) => ({ id, description: CATALOGUE.find((action) => action.id === id)!.label })),
+		...ids.map((id) => ({ id, description: describe(id, criteria) })),
 		{ id: 'unclear', description: 'The request does not clearly ask for one of these actions.' }
 	];
 }

@@ -46,6 +46,8 @@ export interface CatalogueAction {
 	id: string;
 	/** Plain language, what a stranger already calls it. Shown. */
 	label: string;
+	/** One sentence for the local classifier. Never rendered. */
+	modelDescription?: string;
 	group: ActionGroup;
 	/** Extra words a user might search for. Lowercase. Never shown. */
 	terms: readonly string[];
@@ -77,6 +79,7 @@ export const CATALOGUE: readonly CatalogueAction[] = [
 	{
 		id: 'record-income',
 		label: 'Record income',
+		modelDescription: 'You received money, such as your salary, pay, allowance or other earnings, and want to log it.',
 		group: 'Record money',
 		terms: ['income', 'salary', 'arrival', 'deposit', 'paycheck', 'pay'],
 		route: '/',
@@ -87,6 +90,7 @@ export const CATALOGUE: readonly CatalogueAction[] = [
 	{
 		id: 'transfer-money',
 		label: 'Transfer money',
+		modelDescription: 'Move money from one of your own accounts or wallets to another, for example from your bank to your e-wallet.',
 		group: 'Record money',
 		terms: ['move', 'send', 'bank', 'e-wallet', 'gcash'],
 		route: '/accounts',
@@ -97,6 +101,7 @@ export const CATALOGUE: readonly CatalogueAction[] = [
 	{
 		id: 'record-payment',
 		label: 'Record a payment',
+		modelDescription: 'Pay a bill, debt or planned cost that you are already tracking and mark it as paid, rather than starting to track a new one.',
 		group: 'Record money',
 		terms: ['pay', 'payment', 'bill', 'debt', 'obligation', 'settle'],
 		// No single existing route action records a bill, debt, or
@@ -133,6 +138,7 @@ export const CATALOGUE: readonly CatalogueAction[] = [
 	{
 		id: 'record-refund',
 		label: 'Record a refund',
+		modelDescription: 'Get money back for something you bought, because it was returned, cancelled or reimbursed.',
 		group: 'Record money',
 		terms: ['refund', 'money back', 'reimbursement', 'returned'],
 		route: '/',
@@ -145,6 +151,7 @@ export const CATALOGUE: readonly CatalogueAction[] = [
 	{
 		id: 'fund-planned-expense',
 		label: 'Fund a planned expense',
+		modelDescription: 'Put some money toward a plan you have already made for a future cost.',
 		group: 'Set money aside',
 		terms: ['add money', 'set aside', 'allocate', 'reserve', 'fund'],
 		route: '/irregulars',
@@ -155,6 +162,7 @@ export const CATALOGUE: readonly CatalogueAction[] = [
 	{
 		id: 'move-between-purposes',
 		label: 'Move money between purposes',
+		modelDescription: 'Shift money from one budget purpose to another, such as from the emergency fund to savings, without moving it out of your accounts.',
 		group: 'Set money aside',
 		terms: ['move', 'reallocate', 'purpose', 'bucket', 'shift'],
 		// Same route/action as "Transfer money" above. In the current schema
@@ -177,6 +185,7 @@ export const CATALOGUE: readonly CatalogueAction[] = [
 	{
 		id: 'add-trip',
 		label: 'Add a trip',
+		modelDescription: 'Start a trip with its own budget for travelling somewhere.',
 		group: 'Create a plan',
 		terms: ['trip', 'travel', 'vacation', 'abroad'],
 		route: '/trips',
@@ -187,6 +196,7 @@ export const CATALOGUE: readonly CatalogueAction[] = [
 	{
 		id: 'create-planned-expense',
 		label: 'Create a planned expense',
+		modelDescription: 'Plan ahead for a cost you know is coming later, so you can set money aside for it.',
 		group: 'Create a plan',
 		terms: ['irregular', 'big bill', 'planned', 'upcoming expense'],
 		route: '/irregulars',
@@ -197,6 +207,7 @@ export const CATALOGUE: readonly CatalogueAction[] = [
 	{
 		id: 'add-bill-subscription',
 		label: 'Add a bill or subscription',
+		modelDescription: 'Start tracking a new recurring bill or subscription, such as a streaming service, phone plan or rent.',
 		group: 'Create a plan',
 		terms: ['subscription', 'bill', 'recurring', 'streaming'],
 		// `quickAdd`, not `add`: Spec A2's "Minimum required fields first" for
@@ -210,6 +221,7 @@ export const CATALOGUE: readonly CatalogueAction[] = [
 	{
 		id: 'add-debt',
 		label: 'Add a debt',
+		modelDescription: 'Record money that you owe to someone, such as a loan or credit you have to pay back.',
 		group: 'Create a plan',
 		terms: ['debt', 'loan', 'credit card', 'owe'],
 		route: '/debt',
@@ -220,6 +232,7 @@ export const CATALOGUE: readonly CatalogueAction[] = [
 	{
 		id: 'save-for-later',
 		label: 'Save a purchase for later',
+		modelDescription: 'Hold off on buying a specific thing you want and wait before deciding to get it.',
 		group: 'Create a plan',
 		terms: ['wishlist', 'wait', 'wanted', 'waiting period'],
 		route: '/',
@@ -232,6 +245,7 @@ export const CATALOGUE: readonly CatalogueAction[] = [
 	{
 		id: 'add-account',
 		label: 'Add an account',
+		modelDescription: 'Add a new bank account, wallet or card that you want to keep track of.',
 		group: 'Set up or adjust',
 		terms: ['bank', 'e-wallet', 'new account'],
 		route: '/accounts',
@@ -277,6 +291,7 @@ export const CATALOGUE: readonly CatalogueAction[] = [
 	{
 		id: 'add-edit-rule',
 		label: 'Add or edit a personal rule',
+		modelDescription: 'Create or change a personal rule about how your money is handled.',
 		group: 'Set up or adjust',
 		terms: ['rule', 'if then', 'habit', 'trigger'],
 		route: '/rules',
