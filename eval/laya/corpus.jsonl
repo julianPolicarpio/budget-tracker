@@ -13,7 +13,7 @@
 {"text":"kain sa labas 350","expected":"log-spending","tag":"plain-spending","lang":"taglish","source":"authored","split":"dev"}
 {"text":"bili ng bigas 1,100","expected":"log-spending","tag":"plain-spending","lang":"taglish","source":"authored","split":"dev"}
 {"text":"nag-angkas me 95","expected":"log-spending","tag":"plain-spending","lang":"taglish","source":"authored","split":"dev"}
-{"text":"gumastos ako ng 600 sa jollibee kanina","expected":"log-spending","tag":"plain-spending","lang":"taglish","source":"authored","split":"dev"}
+{"text":"gumastos ako ng 600 sa mang inasal kanina","expected":"log-spending","tag":"plain-spending","lang":"taglish","source":"authored","split":"dev"}
 {"text":"pamasahe 40","expected":"log-spending","tag":"plain-spending","lang":"taglish","source":"authored","split":"dev"}
 {"text":"nagpa-gas ako 500","expected":"log-spending","tag":"plain-spending","lang":"taglish","source":"authored","split":"dev"}
 {"text":"ulam 120 lang","expected":"log-spending","tag":"plain-spending","lang":"taglish","source":"authored","split":"dev"}
@@ -29,12 +29,12 @@
 {"text":"add canva 1k/yr","expected":"add-bill-subscription","tag":"new-bill","lang":"en","source":"authored","split":"dev"}
 {"text":"chatgpt plus 1,150 monthly","expected":"add-bill-subscription","tag":"new-bill","lang":"en","source":"authored","split":"dev"}
 {"text":"tuition installment 6,000 every month","expected":"add-bill-subscription","tag":"new-bill","lang":"en","source":"authored","split":"dev"}
-{"text":"bagong plan sa globe 999 a month","expected":"add-bill-subscription","tag":"new-bill","lang":"taglish","source":"authored","split":"dev"}
+{"text":"bagong plan sa pldt fiber 1,899 buwan-buwan","expected":"add-bill-subscription","tag":"new-bill","lang":"taglish","source":"authored","split":"dev"}
 {"text":"may bago akong subscription, disney+ 369 buwan-buwan","expected":"add-bill-subscription","tag":"new-bill","lang":"taglish","source":"authored","split":"dev"}
 {"text":"dagdag bills: smart postpaid 799 monthly","expected":"add-bill-subscription","tag":"new-bill","lang":"taglish","source":"authored","split":"dev"}
-{"text":"upa sa bahay 6500 kada 1st ng buwan","expected":"add-bill-subscription","tag":"new-bill","lang":"taglish","source":"authored","split":"dev"}
+{"text":"upa sa boarding house 3,200 kada katapusan","expected":"add-bill-subscription","tag":"new-bill","lang":"taglish","source":"authored","split":"dev"}
 {"text":"idagdag mo yung tubig bill every month around 400","expected":"add-bill-subscription","tag":"new-bill","lang":"taglish","source":"authored","split":"dev"}
-{"text":"bagong hulog sa gym 1200 monthly","expected":"add-bill-subscription","tag":"new-bill","lang":"taglish","source":"authored","split":"dev"}
+{"text":"bagong hulog sa coop 350 kada kinsenas","expected":"add-bill-subscription","tag":"new-bill","lang":"taglish","source":"authored","split":"dev"}
 {"text":"paid home wifi 1,699","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
 {"text":"paid notion ai 520","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
 {"text":"streaming bill paid 549 via gcash","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
@@ -45,11 +45,11 @@
 {"text":"paid streaming","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
 {"text":"laundry 380 paid today","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
 {"text":"paid laundry for this week","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
-{"text":"bayad ko na yung home wifi 1,699","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
-{"text":"nabayaran ko na ang streaming","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
-{"text":"bayad na laundry 350","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
-{"text":"naka-bayad na ako sa notion ai","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
-{"text":"bayad home wifi gcash 1699","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
+{"text":"home wifi bayad ko na kanina via maya","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
+{"text":"nag-bayad ako ng streaming sa maya kanina","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
+{"text":"paid ko na yung laundry","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
+{"text":"notion ai nabayaran na ng 560 kahapon","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
+{"text":"nabayaran ko na ang home wifi sa bpi","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
 {"text":"na-settle ko na laundry kahapon 400","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
 {"text":"move 2000 from bpi to gcash","expected":"transfer-money","tag":"transfer","lang":"en","source":"authored","split":"dev"}
 {"text":"transfer 5k bdo to maya","expected":"transfer-money","tag":"transfer","lang":"en","source":"authored","split":"dev"}
@@ -63,9 +63,9 @@
 {"text":"moved 600 gcash to cash","expected":"transfer-money","tag":"transfer","lang":"en","source":"authored","split":"dev"}
 {"text":"lipat 500 sa maya","expected":"transfer-money","tag":"transfer","lang":"taglish","source":"authored","split":"dev"}
 {"text":"ilipat ko 3k from bdo papuntang gcash","expected":"transfer-money","tag":"transfer","lang":"taglish","source":"authored","split":"dev"}
-{"text":"nag cash in ako 1000 sa gcash galing bpi","expected":"transfer-money","tag":"transfer","lang":"taglish","source":"authored","split":"dev"}
+{"text":"nag cash in ako ng 2,500 sa maya sa 7-eleven","expected":"transfer-money","tag":"transfer","lang":"taglish","source":"authored","split":"dev"}
 {"text":"nag-withdraw ako ng 2,000 sa atm, from bpi to wallet","expected":"transfer-money","tag":"transfer","lang":"taglish","source":"authored","split":"dev"}
-{"text":"ilipat sa bpi yung 1500 sa gcash","expected":"transfer-money","tag":"transfer","lang":"taglish","source":"authored","split":"dev"}
+{"text":"ilipat mo yung 700 sa bdo galing maya","expected":"transfer-money","tag":"transfer","lang":"taglish","source":"authored","split":"dev"}
 {"text":"deposit ko 5k cash sa bdo","expected":"transfer-money","tag":"transfer","lang":"taglish","source":"authored","split":"dev"}
 {"text":"shopee refund 450","expected":"record-refund","tag":"refund","lang":"en","source":"authored","split":"dev"}
 {"text":"lazada refunded me 1,200","expected":"record-refund","tag":"refund","lang":"en","source":"authored","split":"dev"}
@@ -76,14 +76,13 @@
 {"text":"airline refund 4,300","expected":"record-refund","tag":"refund","lang":"en","source":"authored","split":"dev"}
 {"text":"gcash reversed the 500 failed load","expected":"record-refund","tag":"refund","lang":"en","source":"authored","split":"dev"}
 {"text":"refund 150 from the canceled booking","expected":"record-refund","tag":"refund","lang":"en","source":"authored","split":"dev"}
-{"text":"reimbursed 320 from the store","expected":"record-refund","tag":"refund","lang":"en","source":"authored","split":"dev"}
-{"text":"binalik ng lazada 1200","expected":"record-refund","tag":"refund","lang":"taglish","source":"authored","split":"dev"}
-{"text":"na-refund na yung shopee order ko 450","expected":"record-refund","tag":"refund","lang":"taglish","source":"authored","split":"dev"}
-{"text":"refund ng grab 230 kanina","expected":"record-refund","tag":"refund","lang":"taglish","source":"authored","split":"dev"}
+{"text":"ni-refund ako ng lazada, 740 yung nabalik","expected":"record-refund","tag":"refund","lang":"taglish","source":"authored","split":"dev"}
+{"text":"na-refund na ng seller yung phone case 280","expected":"record-refund","tag":"refund","lang":"taglish","source":"authored","split":"dev"}
+{"text":"refund ng grab 175 kanina","expected":"record-refund","tag":"refund","lang":"taglish","source":"authored","split":"dev"}
 {"text":"ibinalik ng seller yung bayad 799","expected":"record-refund","tag":"refund","lang":"taglish","source":"authored","split":"dev"}
-{"text":"nag-refund na si zalora, 899","expected":"record-refund","tag":"refund","lang":"taglish","source":"authored","split":"dev"}
+{"text":"nag-refund na si zalora, 1,150 yung blouse","expected":"record-refund","tag":"refund","lang":"taglish","source":"authored","split":"dev"}
 {"text":"nabalik na yung pera sa cancelled order 560","expected":"record-refund","tag":"refund","lang":"taglish","source":"authored","split":"dev"}
-{"text":"ipon for laptop by march","expected":"create-planned-expense","tag":"plan","lang":"en","source":"authored","split":"dev"}
+{"text":"ipon for laptop by march","expected":"create-planned-expense","tag":"plan","lang":"taglish","source":"authored","split":"dev"}
 {"text":"plan: dentist 3000 in december","expected":"create-planned-expense","tag":"plan","lang":"en","source":"authored","split":"dev"}
 {"text":"planning to buy a phone 25k in january","expected":"create-planned-expense","tag":"plan","lang":"en","source":"authored","split":"dev"}
 {"text":"budget 2k for christmas gifts by december","expected":"create-planned-expense","tag":"plan","lang":"en","source":"authored","split":"dev"}
@@ -93,13 +92,13 @@
 {"text":"set a plan for new bike 15k, target june","expected":"create-planned-expense","tag":"plan","lang":"en","source":"authored","split":"dev"}
 {"text":"prepare 8000 for graduation fee","expected":"create-planned-expense","tag":"plan","lang":"en","source":"authored","split":"dev"}
 {"text":"plan to buy a new monitor 9,500 in two months","expected":"create-planned-expense","tag":"plan","lang":"en","source":"authored","split":"dev"}
-{"text":"may gastos ako sa december, dentist 3000","expected":"create-planned-expense","tag":"plan","lang":"taglish","source":"authored","split":"dev"}
-{"text":"plano kong bumili ng laptop 40k by march","expected":"create-planned-expense","tag":"plan","lang":"taglish","source":"authored","split":"dev"}
+{"text":"pa-check up sa dentist next year, 4,500 siguro","expected":"create-planned-expense","tag":"plan","lang":"taglish","source":"authored","split":"dev"}
+{"text":"plano kong bumili ng tablet 18k sa feb","expected":"create-planned-expense","tag":"plan","lang":"taglish","source":"authored","split":"dev"}
 {"text":"kailangan ko ng 6k para sa enrollment sa june","expected":"create-planned-expense","tag":"plan","lang":"taglish","source":"authored","split":"dev"}
 {"text":"paghandaan ko yung regalo para kay mama 2500 sa birthday niya","expected":"create-planned-expense","tag":"plan","lang":"taglish","source":"authored","split":"dev"}
 {"text":"plan ko bumili ng sapatos 3k next month","expected":"create-planned-expense","tag":"plan","lang":"taglish","source":"authored","split":"dev"}
 {"text":"ihanda ko 10k pang bayad sa tuition sa jan","expected":"create-planned-expense","tag":"plan","lang":"taglish","source":"authored","split":"dev"}
-{"text":"utang kay mark 1500","expected":"add-debt","tag":"debt","lang":"en","source":"authored","split":"dev"}
+{"text":"utang kay mark 1500","expected":"add-debt","tag":"debt","lang":"taglish","source":"authored","split":"dev"}
 {"text":"borrowed 5k from tita","expected":"add-debt","tag":"debt","lang":"en","source":"authored","split":"dev"}
 {"text":"i owe jenny 800","expected":"add-debt","tag":"debt","lang":"en","source":"authored","split":"dev"}
 {"text":"lent my friend 2000","expected":"unclear","tag":"ambiguous","lang":"en","source":"authored","split":"dev"}
@@ -124,40 +123,37 @@
 {"text":"gift money 1,000 from godmother","expected":"record-income","tag":"income","lang":"en","source":"authored","split":"dev"}
 {"text":"13th month 22,000","expected":"record-income","tag":"income","lang":"en","source":"authored","split":"dev"}
 {"text":"commission 2,800 today","expected":"record-income","tag":"income","lang":"en","source":"authored","split":"dev"}
-{"text":"sweldo 18000","expected":"record-income","tag":"income","lang":"taglish","source":"authored","split":"dev"}
+{"text":"sweldo namin kanina 16,200 na","expected":"record-income","tag":"income","lang":"taglish","source":"authored","split":"dev"}
 {"text":"pumasok na yung sahod ko 15,400","expected":"record-income","tag":"income","lang":"taglish","source":"authored","split":"dev"}
 {"text":"binigyan ako ni papa ng 2k","expected":"record-income","tag":"income","lang":"taglish","source":"authored","split":"dev"}
 {"text":"nakabenta ako ng 1,500 sa shopee","expected":"record-income","tag":"income","lang":"taglish","source":"authored","split":"dev"}
 {"text":"kita ko ngayon 850 sa tindahan","expected":"record-income","tag":"income","lang":"taglish","source":"authored","split":"dev"}
-{"text":"nagbayad na client ko 9k","expected":"record-income","tag":"income","lang":"taglish","source":"authored","split":"dev"}
+{"text":"nagbayad na yung client ko, 7,500 for the logo","expected":"record-income","tag":"income","lang":"taglish","source":"authored","split":"dev"}
 {"text":"trip to tokyo in april","expected":"add-trip","tag":"trip","lang":"en","source":"authored","split":"dev"}
 {"text":"going to cebu next month","expected":"add-trip","tag":"trip","lang":"en","source":"authored","split":"dev"}
 {"text":"vacation in boracay, dec 10 to 14","expected":"add-trip","tag":"trip","lang":"en","source":"authored","split":"dev"}
 {"text":"plan a baguio trip for 3 days","expected":"add-trip","tag":"trip","lang":"en","source":"authored","split":"dev"}
-{"text":"family outing to tagaytay on saturday","expected":"add-trip","tag":"trip","lang":"en","source":"authored","split":"dev"}
 {"text":"work travel to singapore feb 3-6","expected":"add-trip","tag":"trip","lang":"en","source":"authored","split":"dev"}
 {"text":"new trip: siargao summer","expected":"add-trip","tag":"trip","lang":"en","source":"authored","split":"dev"}
 {"text":"weekend getaway to la union","expected":"add-trip","tag":"trip","lang":"en","source":"authored","split":"dev"}
 {"text":"trip to davao w/ friends in may","expected":"add-trip","tag":"trip","lang":"en","source":"authored","split":"dev"}
 {"text":"flying to palawan on june 12","expected":"add-trip","tag":"trip","lang":"en","source":"authored","split":"dev"}
-{"text":"punta kami ng cebu next month","expected":"add-trip","tag":"trip","lang":"taglish","source":"authored","split":"dev"}
-{"text":"byahe sa baguio sa december","expected":"add-trip","tag":"trip","lang":"taglish","source":"authored","split":"dev"}
+{"text":"punta kami ng ilocos sa holy week","expected":"add-trip","tag":"trip","lang":"taglish","source":"authored","split":"dev"}
+{"text":"byahe kami sa sagada sa december","expected":"add-trip","tag":"trip","lang":"taglish","source":"authored","split":"dev"}
 {"text":"out of town kami sa batangas this weekend","expected":"add-trip","tag":"trip","lang":"taglish","source":"authored","split":"dev"}
 {"text":"uuwi ako sa province sa pasko","expected":"add-trip","tag":"trip","lang":"taglish","source":"authored","split":"dev"}
 {"text":"trip namin sa bohol sa march","expected":"add-trip","tag":"trip","lang":"taglish","source":"authored","split":"dev"}
-{"text":"magbabakasyon kami sa siargao sa april","expected":"add-trip","tag":"trip","lang":"taglish","source":"authored","split":"dev"}
+{"text":"magbabakasyon kami sa coron sa april","expected":"add-trip","tag":"trip","lang":"taglish","source":"authored","split":"dev"}
 {"text":"set aside 1000 for emergencies","expected":"move-between-purposes","tag":"savings","lang":"en","source":"authored","split":"dev"}
-{"text":"save 500 for later","expected":"move-between-purposes","tag":"savings","lang":"en","source":"authored","split":"dev"}
 {"text":"not buying the headphones now, save for later 3,200","expected":"save-for-later","tag":"savings","lang":"en","source":"authored","split":"dev"}
 {"text":"hold off on the sneakers 4k","expected":"save-for-later","tag":"savings","lang":"en","source":"authored","split":"dev"}
 {"text":"put aside 2k for the next paycheck gap","expected":"move-between-purposes","tag":"savings","lang":"en","source":"authored","split":"dev"}
 {"text":"saving up for a keyboard 5,000","expected":"create-planned-expense","tag":"savings","lang":"en","source":"authored","split":"dev"}
 {"text":"maybe later: ps5 25k","expected":"save-for-later","tag":"savings","lang":"en","source":"authored","split":"dev"}
-{"text":"park 800 for gifts","expected":"move-between-purposes","tag":"savings","lang":"en","source":"authored","split":"dev"}
 {"text":"want it but not now, airpods 11k","expected":"save-for-later","tag":"savings","lang":"en","source":"authored","split":"dev"}
 {"text":"itabi ko 500","expected":"move-between-purposes","tag":"savings","lang":"taglish","source":"authored","split":"dev"}
 {"text":"ipon muna 2k for emergency","expected":"move-between-purposes","tag":"savings","lang":"taglish","source":"authored","split":"dev"}
-{"text":"di muna ako bibili ng sapatos, 3k, saka na","expected":"save-for-later","tag":"savings","lang":"taglish","source":"authored","split":"dev"}
+{"text":"di muna ako bibili ng bag, 2,800, saka na","expected":"save-for-later","tag":"savings","lang":"taglish","source":"authored","split":"dev"}
 {"text":"ilalaan ko 1,500 pang-emergency","expected":"move-between-purposes","tag":"savings","lang":"taglish","source":"authored","split":"dev"}
 {"text":"pang-ipon ko yung 300 ngayon","expected":"move-between-purposes","tag":"savings","lang":"taglish","source":"authored","split":"dev"}
 {"text":"saka na yung bagong phone 18k","expected":"save-for-later","tag":"savings","lang":"taglish","source":"authored","split":"dev"}
@@ -171,16 +167,71 @@
 {"text":"how much is left","expected":"unclear","tag":"ambiguous","lang":"en","source":"authored","split":"dev"}
 {"text":"maybe tomorrow","expected":"unclear","tag":"ambiguous","lang":"en","source":"authored","split":"dev"}
 {"text":"the usual","expected":"unclear","tag":"ambiguous","lang":"en","source":"authored","split":"dev"}
-{"text":"magkano na ako","expected":"unclear","tag":"ambiguous","lang":"taglish","source":"authored","split":"dev"}
+{"text":"nasaan na yung pera ko","expected":"unclear","tag":"ambiguous","lang":"taglish","source":"authored","split":"dev"}
 {"text":"ano na nangyari dun","expected":"unclear","tag":"ambiguous","lang":"taglish","source":"authored","split":"dev"}
-{"text":"yung kahapon ulit","expected":"unclear","tag":"ambiguous","lang":"taglish","source":"authored","split":"dev"}
+{"text":"ulitin mo yung kanina","expected":"unclear","tag":"ambiguous","lang":"taglish","source":"authored","split":"dev"}
 {"text":"ewan ko","expected":"unclear","tag":"ambiguous","lang":"taglish","source":"authored","split":"dev"}
 {"text":"pakiayos naman nito","expected":"unclear","tag":"ambiguous","lang":"taglish","source":"authored","split":"dev"}
-{"text":"bukas na lang","expected":"unclear","tag":"ambiguous","lang":"taglish","source":"authored","split":"dev"}
+{"text":"mamaya na lang siguro","expected":"unclear","tag":"ambiguous","lang":"taglish","source":"authored","split":"dev"}
 {"text":"sino may hawak ng pera","expected":"unclear","tag":"ambiguous","lang":"taglish","source":"authored","split":"dev"}
 {"text":"add 2k to the laptop fund","expected":"fund-planned-expense","tag":"plan","lang":"en","source":"authored","split":"dev"}
 {"text":"put 1,500 toward the dentist plan","expected":"fund-planned-expense","tag":"plan","lang":"en","source":"authored","split":"dev"}
 {"text":"fund my christmas gifts plan with 3000","expected":"fund-planned-expense","tag":"plan","lang":"en","source":"authored","split":"dev"}
 {"text":"top up the enrollment fund 5k","expected":"fund-planned-expense","tag":"plan","lang":"en","source":"authored","split":"dev"}
-{"text":"dagdag ko 1k sa laptop fund","expected":"fund-planned-expense","tag":"plan","lang":"taglish","source":"authored","split":"dev"}
-{"text":"ilagay mo yung 2,000 sa plan ko para sa regalo","expected":"fund-planned-expense","tag":"plan","lang":"taglish","source":"authored","split":"dev"}
+{"text":"dagdag ko 1,200 sa fund ng bagong sapatos","expected":"fund-planned-expense","tag":"plan","lang":"taglish","source":"authored","split":"dev"}
+{"text":"naglagay ako ng 1,000 sa tuition plan ko","expected":"fund-planned-expense","tag":"plan","lang":"taglish","source":"authored","split":"dev"}
+{"text":"paid netflix 549","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
+{"text":"wifi bill paid 1699","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
+{"text":"pldt paid 1,699","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
+{"text":"paid the notion subscription","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
+{"text":"paid for the internet this month","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
+{"text":"nabayaran ko na netflix","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
+{"text":"bayad na ng wifi bill kahapon","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
+{"text":"bayad ko sa labada 360","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
+{"text":"nag-bayad na ako ng internet, 1699","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
+{"text":"new netflix premium plan 549/mo","expected":"add-bill-subscription","tag":"new-bill","lang":"en","source":"authored","split":"dev"}
+{"text":"adding hbo go 150 monthly","expected":"add-bill-subscription","tag":"new-bill","lang":"en","source":"authored","split":"dev"}
+{"text":"second wifi line for the office 1,299 monthly","expected":"add-bill-subscription","tag":"new-bill","lang":"en","source":"authored","split":"dev"}
+{"text":"pldt fiber for my parents' house 1,299 monthly","expected":"add-bill-subscription","tag":"new-bill","lang":"en","source":"authored","split":"dev"}
+{"text":"joined a new gym, 1,800 a month","expected":"add-bill-subscription","tag":"new-bill","lang":"en","source":"authored","split":"dev"}
+{"text":"may bagong labada service ako, 500 kada linggo","expected":"add-bill-subscription","tag":"new-bill","lang":"taglish","source":"authored","split":"dev"}
+{"text":"got 1,200 back from lazada","expected":"record-refund","tag":"refund","lang":"en","source":"authored","split":"dev"}
+{"text":"bank returned the 300 charge","expected":"record-refund","tag":"refund","lang":"en","source":"authored","split":"dev"}
+{"text":"landlord returned my 5,000 deposit","expected":"record-refund","tag":"refund","lang":"en","source":"authored","split":"dev"}
+{"text":"bumalik yung 600 sa cancelled flight","expected":"record-refund","tag":"refund","lang":"taglish","source":"authored","split":"dev"}
+{"text":"client paid me back for the materials 1,200","tag":"income","lang":"en","source":"authored","split":"dev","expected":"record-income"}
+{"text":"tip 200 from a customer","tag":"income","lang":"en","source":"authored","split":"dev","expected":"record-income"}
+{"text":"bayad ng client para sa materials 2,300","tag":"income","lang":"taglish","source":"authored","split":"dev","expected":"record-income"}
+{"text":"moved 2k to my emergency fund","expected":"move-between-purposes","tag":"savings","lang":"en","source":"authored","split":"dev"}
+{"text":"ilipat ko 1k sa emergency fund","expected":"move-between-purposes","tag":"savings","lang":"taglish","source":"authored","split":"dev"}
+{"text":"move 1,500 from vacation fund to dentist fund","expected":"move-between-purposes","tag":"savings","lang":"en","source":"authored","split":"dev"}
+{"text":"moved 2k to bpi","expected":"transfer-money","tag":"transfer","lang":"en","source":"authored","split":"dev"}
+{"text":"gcash to maya 1k","expected":"transfer-money","tag":"transfer","lang":"en","source":"authored","split":"dev"}
+{"text":"lipat 1k sa bdo ko","expected":"transfer-money","tag":"transfer","lang":"taglish","source":"authored","split":"dev"}
+{"text":"paid 500","expected":"unclear","tag":"ambiguous","lang":"en","source":"authored","split":"dev"}
+{"text":"1,500 gcash","expected":"unclear","tag":"ambiguous","lang":"en","source":"authored","split":"dev"}
+{"text":"2k from bpi","expected":"unclear","tag":"ambiguous","lang":"en","source":"authored","split":"dev"}
+{"text":"received 800","expected":"unclear","tag":"ambiguous","lang":"en","source":"authored","split":"dev"}
+{"text":"sent 1000","expected":"unclear","tag":"ambiguous","lang":"en","source":"authored","split":"dev"}
+{"text":"500 kanina","expected":"unclear","tag":"ambiguous","lang":"taglish","source":"authored","split":"dev"}
+{"text":"bayad 300","expected":"unclear","tag":"ambiguous","lang":"taglish","source":"authored","split":"dev"}
+{"text":"ayun yung 250 kahapon","expected":"unclear","tag":"ambiguous","lang":"taglish","source":"authored","split":"dev"}
+{"text":"paid 350 for dinner with friends","expected":"log-spending","tag":"plain-spending","lang":"en","source":"authored","split":"dev"}
+{"text":"bayad ko sa grab 150","expected":"log-spending","tag":"plain-spending","lang":"taglish","source":"authored","split":"dev"}
+{"text":"sagot ko yung 400 sa inuman","expected":"log-spending","tag":"plain-spending","lang":"taglish","source":"authored","split":"dev"}
+{"text":"set budget 15000 a month","expected":"set-budget","tag":"setup","lang":"en","source":"authored","split":"dev"}
+{"text":"weekly budget 3,500","expected":"set-budget","tag":"setup","lang":"en","source":"authored","split":"dev"}
+{"text":"lower my monthly budget to 12k","expected":"set-budget","tag":"setup","lang":"en","source":"authored","split":"dev"}
+{"text":"gawin mong 10k ang budget ko this month","expected":"set-budget","tag":"setup","lang":"taglish","source":"authored","split":"dev"}
+{"text":"add account seabank","expected":"add-account","tag":"setup","lang":"en","source":"authored","split":"dev"}
+{"text":"new account: maya savings","expected":"add-account","tag":"setup","lang":"en","source":"authored","split":"dev"}
+{"text":"magdagdag ng bdo account","expected":"add-account","tag":"setup","lang":"taglish","source":"authored","split":"dev"}
+{"text":"add my coins.ph wallet","expected":"add-account","tag":"setup","lang":"en","source":"authored","split":"dev"}
+{"text":"my gcash balance is 2,340 now","expected":"update-balance","tag":"setup","lang":"en","source":"authored","split":"dev"}
+{"text":"update bdo balance 8k","expected":"update-balance","tag":"setup","lang":"en","source":"authored","split":"dev"}
+{"text":"bpi balance 15,800 na lang","expected":"update-balance","tag":"setup","lang":"taglish","source":"authored","split":"dev"}
+{"text":"ang laman ng maya ko 560 na lang","expected":"update-balance","tag":"setup","lang":"taglish","source":"authored","split":"dev"}
+{"text":"always put grab under transport","expected":"add-edit-rule","tag":"setup","lang":"en","source":"authored","split":"dev"}
+{"text":"rule: jollibee is food out","expected":"add-edit-rule","tag":"setup","lang":"en","source":"authored","split":"dev"}
+{"text":"lagi mong ilagay ang shopee sa shopping","expected":"add-edit-rule","tag":"setup","lang":"taglish","source":"authored","split":"dev"}
+{"text":"tag every 7-eleven as snacks","expected":"add-edit-rule","tag":"setup","lang":"en","source":"authored","split":"dev"}

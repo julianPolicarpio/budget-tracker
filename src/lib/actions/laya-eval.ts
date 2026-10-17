@@ -1,4 +1,4 @@
-export type Tag = 'plain-spending' | 'new-bill' | 'existing-bill' | 'transfer' | 'refund' | 'plan' | 'debt' | 'income' | 'trip' | 'savings' | 'ambiguous';
+export type Tag = 'plain-spending' | 'new-bill' | 'existing-bill' | 'transfer' | 'refund' | 'plan' | 'debt' | 'income' | 'trip' | 'savings' | 'ambiguous' | 'setup';
 export interface EvalCase { text: string; expected: string; tag: Tag; lang: 'en' | 'taglish'; source: 'authored' | 'owner'; split: 'dev' | 'test'; }
 export type Route = 'parser' | 'model' | 'fallback';
 export interface EvalRow extends EvalCase {
