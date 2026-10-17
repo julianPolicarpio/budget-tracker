@@ -43,7 +43,7 @@ export function validChoice(value: unknown, allowedIds: readonly string[]): Laya
  */
 export async function classifyWithLaya(text: string, options: readonly LayaOption[]): Promise<LayaChoice | null> {
 	const base = configuredUrl();
-	if (!base || options.length === 0 || options.length > 8) return null;
+	if (!base || options.length === 0 || options.length > 16) return null;
 
 	const ids = options.map((option) => option.id);
 	if (new Set(ids).size !== ids.length) return null;

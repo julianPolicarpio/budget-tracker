@@ -2,15 +2,6 @@ import { CATALOGUE } from './catalogue';
 
 export const CHOICE_LIMIT = 3;
 const DEFAULT_CHOICES = ['add-bill-subscription', 'add-debt', 'save-for-later'];
-const DEFAULT_MODEL_OPTIONS = [
-	'transfer-money',
-	'record-refund',
-	'add-trip',
-	'create-planned-expense',
-	'add-bill-subscription',
-	'add-debt',
-	'save-for-later'
-];
 
 export type Criteria = 'labels' | 'descriptions';
 
@@ -40,8 +31,16 @@ function describe(id: string, criteria: Criteria): string {
 	return criteria === 'descriptions' ? (action.modelDescription ?? action.label) : action.label;
 }
 
-export function modelOptions(text: string, criteria: Criteria = 'labels'): { id: string; description: string }[] {
-	const ids = catalogueOrder([...matchingActionIds(text), ...DEFAULT_MODEL_OPTIONS]).slice(0, 7);
+/**
+ * What the model chooses between: every catalogue action except `log-spending`
+ * (ordinary spending never reaches the model), in catalogue order, then
+ * `unclear`. This is deliberately not a keyword shortlist: measured on the dev
+ * corpus, a shortlist hid the right action in a third of cases (55 of 163), so
+ * the model now sees them all and the options limit is 16. `text` is unused
+ * and kept so callers do not change.
+ */
+export function modelOptions(_text: string, criteria: Criteria = 'labels'): { id: string; description: string }[] {
+	const ids = CATALOGUE.filter((action) => action.id !== 'log-spending').map((action) => action.id);
 	return [
 		...ids.map((id) => ({ id, description: describe(id, criteria) })),
 		{ id: 'unclear', description: 'The request does not clearly ask for one of these actions.' }

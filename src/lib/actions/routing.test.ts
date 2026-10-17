@@ -13,11 +13,19 @@ describe('routing helpers', () => {
 		expect(fallbackChoices('help me organise this')).toEqual(['add-bill-subscription', 'add-debt', 'save-for-later']);
 	});
 
-	it('offers the model at most eight options, ending with unclear, never log-spending', () => {
-		const options = modelOptions('refund transfer trip plan bill debt save income account');
-		expect(options.length).toBeLessThanOrEqual(8);
-		expect(options.at(-1)!.id).toBe('unclear');
-		expect(options.map((o) => o.id)).not.toContain('log-spending');
+	it('offers the model every action except log-spending, in catalogue order, ending with unclear', () => {
+		for (const text of ['help me organise this', 'refund transfer trip plan bill debt save income account']) {
+			const options = modelOptions(text);
+			const ids = options.map((o) => o.id);
+			expect(options.length).toBeLessThanOrEqual(16);
+			expect(ids.at(-1)).toBe('unclear');
+			expect(ids).not.toContain('log-spending');
+			for (const id of ['record-income', 'set-budget', 'update-balance', 'add-account', 'add-edit-rule', 'move-between-purposes', 'record-payment']) {
+				expect(ids).toContain(id);
+			}
+			expect(ids.slice(0, -1)).toEqual(catalogueOrder(ids.slice(0, -1)));
+			expect(ids.slice(0, -1)).toEqual(CATALOGUE.filter((a) => a.id !== 'log-spending').map((a) => a.id));
+		}
 	});
 
 	it('uses each action\'s model description when asked, else its label', () => {

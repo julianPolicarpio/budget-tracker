@@ -63,4 +63,23 @@ describe('classifyWithLaya', () => {
 		);
 		expect(await classifyWithLaya('private text', OPTIONS)).toBeNull();
 	});
+
+	it('sends 16 options but refuses 17 without calling fetch', async () => {
+		process.env.LAYA_URL = 'http://127.0.0.1:3010';
+		const fetchMock = vi.fn(async () =>
+			new Response(JSON.stringify({ id: 'a0', probability: 0.9, margin: 0.5 }), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		const make = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `a${i}`, description: `Action ${i}.` }));
+
+		expect(await classifyWithLaya('some text', make(16))).not.toBeNull();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+
+		fetchMock.mockClear();
+		expect(await classifyWithLaya('some text', make(17))).toBeNull();
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
 });

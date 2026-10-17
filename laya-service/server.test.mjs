@@ -9,6 +9,14 @@ const OPTIONS = [
 	{ id: 'add-bill-subscription', description: 'Add a recurring bill or subscription.' }
 ];
 
+// Every action id the service knows, 17 in all (16 plus `unclear`).
+const ALL_IDS = [
+	'log-spending', 'record-income', 'transfer-money', 'record-payment', 'record-refund',
+	'fund-planned-expense', 'move-between-purposes', 'add-trip', 'create-planned-expense',
+	'add-bill-subscription', 'add-debt', 'save-for-later', 'add-account', 'set-budget',
+	'update-balance', 'add-edit-rule', 'unclear'
+];
+
 async function withService(serviceOptions, run) {
 	const server = createLayaService(serviceOptions);
 	server.listen(0, '127.0.0.1');
@@ -65,13 +73,27 @@ test('rejects an empty, oversized, or wrongly sized option list before classific
 				{ text: '', options: OPTIONS },
 				{ text: 'x'.repeat(1001), options: OPTIONS },
 				{ text: 'salary', options: [] },
-				{ text: 'salary', options: Array.from({ length: 9 }, (_, index) => ({ id: index ? 'record-income' : 'add-bill-subscription', description: 'Income' })) }
+				{ text: 'salary', options: ALL_IDS.slice(0, 17).map((id) => ({ id, description: 'Income' })) }
 			]) {
 				const result = await request(baseUrl, '/classify', body);
 				assert.equal(result.status, 400);
 				assert.equal(typeof result.body.error, 'string');
 			}
 			assert.equal(calls, 0);
+		}
+	);
+});
+
+test('accepts 16 options and rejects 17', async () => {
+	await withService(
+		{
+			classify: async () => ({ id: 'record-income', probability: 0.9, margin: 0.4 }),
+			getStatus: () => 'ready'
+		},
+		async (baseUrl) => {
+			const make = (n) => ALL_IDS.slice(0, n).map((id) => ({ id, description: 'An action.' }));
+			assert.equal((await request(baseUrl, '/classify', { text: 'salary', options: make(16) })).status, 200);
+			assert.equal((await request(baseUrl, '/classify', { text: 'salary', options: make(17) })).status, 400);
 		}
 	);
 });

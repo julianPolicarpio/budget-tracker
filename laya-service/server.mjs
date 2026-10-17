@@ -5,7 +5,7 @@ import { join } from 'node:path';
 const READY_MARKERS = ['.split-laya-ready', '.longhand-laya-ready'];
 const MODEL_INSTRUCTION = 'Which Split action is requested?';
 const MAX_TEXT_LENGTH = 1_000;
-const MAX_OPTIONS = 8;
+const MAX_OPTIONS = 16;
 const MAX_BODY_BYTES = 20_000;
 const ACTION_IDS = new Set([
 	'log-spending',
