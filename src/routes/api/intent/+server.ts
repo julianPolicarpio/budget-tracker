@@ -1,53 +1,12 @@
 import { json } from '@sveltejs/kit';
-import { CATALOGUE } from '$lib/actions/catalogue';
 import { resolveProtectedIntent } from '$lib/actions/intent';
+import { fallbackChoices, modelOptions, routedChoices } from '$lib/actions/routing';
 import { buildParseContext } from '$lib/server/entry';
 import { classifyWithLaya } from '$lib/server/laya-client';
 import { loadSettings } from '$lib/server/today';
 import type { RequestHandler } from './$types';
 
 const MAX_TEXT_LENGTH = 1_000;
-const CHOICE_LIMIT = 3;
-const DEFAULT_CHOICES = ['add-bill-subscription', 'add-debt', 'save-for-later'];
-const DEFAULT_MODEL_OPTIONS = [
-	'transfer-money',
-	'record-refund',
-	'add-trip',
-	'create-planned-expense',
-	'add-bill-subscription',
-	'add-debt',
-	'save-for-later'
-];
-
-function catalogueOrder(ids: readonly string[]): string[] {
-	const wanted = new Set(ids);
-	return CATALOGUE.filter((action) => wanted.has(action.id)).map((action) => action.id);
-}
-
-function matchingActionIds(text: string): string[] {
-	const words = text.toLowerCase().match(/[a-z]{3,}/g) ?? [];
-	return CATALOGUE.filter(
-		(action) =>
-			action.behaviour.kind === 'form' &&
-			action.id !== 'log-spending' &&
-			words.some((word) =>
-				[action.label, ...action.terms].some((phrase) => phrase.toLowerCase().includes(word))
-			)
-	).map((action) => action.id);
-}
-
-function fallbackChoices(text: string): string[] {
-	return catalogueOrder([...matchingActionIds(text), ...DEFAULT_CHOICES]).slice(0, CHOICE_LIMIT);
-}
-
-function modelOptions(text: string): { id: string; description: string }[] {
-	const ids = catalogueOrder([...matchingActionIds(text), ...DEFAULT_MODEL_OPTIONS]).slice(0, 7);
-	return [
-		...ids.map((id) => ({ id, description: CATALOGUE.find((action) => action.id === id)!.label })),
-		{ id: 'unclear', description: 'The request does not clearly ask for one of these actions.' }
-	];
-}
-
 function choicesResponse(actionIds: string[]) {
 	return json({ kind: 'choices' as const, actionIds });
 }
@@ -87,14 +46,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 	if (protectedIntent.kind !== 'choices') return choicesResponse(fallbackChoices(text));
 
-	const fallback = fallbackChoices(text);
 	const proposal = await classifyWithLaya(text, modelOptions(text));
 
-	// A model-only suggestion stays a choice until Longhand-specific accuracy
+	// A model-only suggestion stays a choice until Split-specific accuracy
 	// has been measured. Its result can affect which three forms are offered,
 	// but catalogue order remains stable and no form opens automatically.
-	if (proposal && proposal.id !== 'unclear') {
-		return choicesResponse(catalogueOrder([proposal.id, ...fallback.filter((id) => id !== proposal.id).slice(0, 2)]));
-	}
-	return choicesResponse(fallback);
+	return choicesResponse(routedChoices(proposal?.id ?? null, text));
 };
