@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CATALOGUE } from './catalogue';
 import { AUTO_OPEN_CANDIDATES, NEVER_AUTO_OPEN, chooseThresholds, isDangerousOpen, summarise, type EvalRow } from './laya-eval';
 
 function row(p: Partial<EvalRow>): EvalRow {
@@ -83,6 +84,12 @@ describe('chooseThresholds', () => {
 });
 
 describe('auto-open lists', () => {
+	it('every dedicated action is in NEVER_AUTO_OPEN', () => {
+		const dedicated = CATALOGUE.filter((a) => a.behaviour.kind === 'dedicated').map((a) => a.id);
+		expect(dedicated.length).toBeGreaterThan(0);
+		expect(dedicated.filter((id) => !NEVER_AUTO_OPEN.has(id))).toEqual([]);
+	});
+
 	it('no auto-open candidate is in NEVER_AUTO_OPEN', () => {
 		expect(AUTO_OPEN_CANDIDATES.filter((id) => NEVER_AUTO_OPEN.has(id))).toEqual([]);
 	});

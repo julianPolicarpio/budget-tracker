@@ -13,7 +13,7 @@ export interface EvalRow extends EvalCase {
 export interface Thresholds { probability: number; margin: number; allowed: string[]; }
 
 export const TIMEOUT_MS = 750;
-export const NEVER_AUTO_OPEN: ReadonlySet<string> = new Set(['record-payment', 'add-debt', 'update-balance', 'transfer-money', 'unclear', 'log-spending']);
+export const NEVER_AUTO_OPEN: ReadonlySet<string> = new Set(['record-payment', 'add-debt', 'update-balance', 'transfer-money', 'unclear', 'log-spending', 'set-budget']);
 export const AUTO_OPEN_CANDIDATES = ['add-bill-subscription', 'record-refund', 'create-planned-expense', 'add-trip', 'record-income', 'save-for-later'] as const;
 const MONEY_MOVING = new Set(['log-spending', 'record-income', 'transfer-money', 'record-payment', 'record-refund', 'fund-planned-expense', 'move-between-purposes', 'add-debt', 'update-balance']);
 

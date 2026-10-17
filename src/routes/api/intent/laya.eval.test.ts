@@ -67,7 +67,7 @@ describe.skipIf(!ENABLED)('Laya eval (opt-in)', () => {
 			const context = m.entry.buildParseContext(userId);
 			const p = m.intent.resolveProtectedIntent(c.text, context, minorUnits);
 			// Same comma stripping as resolveProtectedIntent, so the kind matches what it saw.
-			const parseKind = parseEntry(c.text.replace(/(?<=\d),(?=\d{3}\b)/g, ''), context, minorUnits).kind;
+			const parseKind = parseEntry(m.intent.parserInput(c.text), context, minorUnits).kind;
 			if (p.kind !== 'choices') {
 				const decided = p.kind === 'spending' ? 'log-spending' : p.kind === 'existing' ? 'record-payment' : p.actionId;
 				rows.push({ ...c, route: 'parser', decided, probability: null, margin: null, latencyMs: null,
@@ -80,7 +80,7 @@ describe.skipIf(!ENABLED)('Laya eval (opt-in)', () => {
 			// log-spending never reaches the model; every other `choices` case does (the user tapped
 			// Continue). This deliberately uses the corpus label to stand in for the user's own
 			// knowledge of what they meant.
-			if (c.expected === 'log-spending' && (parseKind === 'ask_category' || parseKind === 'transaction')) {
+			if (c.expected === 'log-spending' && parseKind === 'ask_category') {
 				rows.push({ ...c, route: 'parser', decided: 'log-spending', probability: null, margin: null,
 					latencyMs: null, choices: m.routing.fallbackChoices(c.text), parseKind });
 				continue;

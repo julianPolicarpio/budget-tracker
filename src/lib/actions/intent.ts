@@ -32,15 +32,19 @@ const EXPLICIT_ACTIONS: readonly ExplicitAction[] = [
 ];
 
 /**
+ * `entry-parser` accepts a plain decimal amount, so grouping commas are removed
+ * for its classification pass only. Drafts keep the original source text.
+ */
+export function parserInput(raw: string): string {
+	return raw.replace(/(?<=\d),(?=\d{3}\b)/g, '');
+}
+
+/**
  * Keep typed ordinary spending and named live commitments on their current
  * routes. Only requests that survive those protections can select a form.
  */
 export function resolveProtectedIntent(raw: string, context: ParseContext, minorUnits: number): ProtectedIntent {
-	// `entry-parser` accepts a plain decimal amount. Remove grouping commas
-	// only for its classification pass; the draft still retains the original
-	// source text and `draftForAction` validates its amount separately.
-	const parserInput = raw.replace(/(?<=\d),(?=\d{3}\b)/g, '');
-	const parsed = parseEntry(parserInput, context, minorUnits);
+	const parsed = parseEntry(parserInput(raw), context, minorUnits);
 	if (parsed.kind === 'existing_commitment') return { kind: 'existing' };
 	if (parsed.kind === 'transaction') return { kind: 'spending' };
 	if (parsed.kind === 'new_commitment') {

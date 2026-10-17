@@ -112,12 +112,63 @@ describe('POST /api/intent', () => {
 		vi.unstubAllGlobals();
 	});
 
+	it('keeps an allowed answer as choices below either threshold', async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => Response.json({ id: 'add-trip', probability: 0.9, margin: 1 })));
+		expect((await (await post({ text: 'help me organise this' })).json()).kind).toBe('choices');
+		vi.stubGlobal('fetch', vi.fn(async () => Response.json({ id: 'add-trip', probability: 1, margin: 0.4 })));
+		expect((await (await post({ text: 'help me organise this' })).json()).kind).toBe('choices');
+		vi.unstubAllGlobals();
+	});
+
 	it('opens a reviewed form when an allowed answer clears both thresholds', async () => {
 		const { AUTO_OPEN } = await import('$lib/actions/auto-open');
+		expect(AUTO_OPEN.allowed.length).toBeGreaterThan(0);
 		const id = AUTO_OPEN.allowed[0];
 		vi.stubGlobal('fetch', vi.fn(async () => Response.json({ id, probability: 1, margin: 1 })));
 		const response = await post({ text: 'help me organise this' });
 		expect(await response.json()).toMatchObject({ kind: 'action', actionId: id });
 		vi.unstubAllGlobals();
+	});
+
+	it('copies the stated amount into the opened draft', async () => {
+		const { draftForAction } = await import('$lib/actions/intent');
+		const text = 'tokyo in april 5,000';
+		const fetchMock = vi.fn(async () => Response.json({ id: 'add-trip', probability: 1, margin: 1 }));
+		vi.stubGlobal('fetch', fetchMock);
+		const body = await (await post({ text })).json();
+		expect(fetchMock).toHaveBeenCalled(); // the text reached the model, not a parser route
+		const expected = draftForAction('add-trip', text, 2);
+		expect(expected.fields.amount).toBeDefined();
+		expect(body).toMatchObject({ kind: 'action', actionId: 'add-trip' });
+		expect(body.draft.fields.amount).toEqual(expected.fields.amount);
+		vi.unstubAllGlobals();
+	});
+});
+
+describe('POST /api/intent with a misconfigured allowlist', () => {
+	it('never opens a never-auto-open id even if the allowlist lists it', async () => {
+		vi.resetModules();
+		vi.doMock('$lib/actions/auto-open', async () => {
+			const actual = await vi.importActual<typeof import('$lib/actions/auto-open')>('$lib/actions/auto-open');
+			const bad = { ...actual.AUTO_OPEN, allowed: [...actual.AUTO_OPEN.allowed, 'transfer-money'] };
+			return { AUTO_OPEN: bad, shouldAutoOpen: (choice: never, config = bad) => actual.shouldAutoOpen(choice, config) };
+		});
+		try {
+			const isolated = await import('./+server');
+			vi.stubGlobal('fetch', vi.fn(async () => Response.json({ id: 'transfer-money', probability: 1, margin: 1 })));
+			const response = await isolated.POST({
+				request: new Request('http://localhost/api/intent', {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ text: 'help me organise this' })
+				}),
+				locals: { userId: 1 }
+			} as never);
+			expect((await response.json()).kind).toBe('choices');
+		} finally {
+			vi.unstubAllGlobals();
+			vi.doUnmock('$lib/actions/auto-open');
+			vi.resetModules();
+		}
 	});
 });
