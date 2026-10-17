@@ -229,6 +229,8 @@ export function startScheduler(): void {
 	 * one indexed lookup and does nothing until the date actually turns over.
 	 */
 	sweepDemoTenants();
+	// The public demo mints tenants all day; nightly alone lets a busy day pile up.
+	if (demoModeEnabled(process.env)) setInterval(sweepDemoTenants, 3_600_000).unref();
 
 	setInterval(() => {
 		for (const key of keys) {

@@ -12,9 +12,15 @@
 
 import { redirect, type RequestHandler } from '@sveltejs/kit';
 import { createSession, SESSION_COOKIE, sessionCookieAttrs } from '$lib/server/auth';
-import { createDemoUser } from '$lib/server/demo';
+import { countDemoUsers, createDemoUser } from '$lib/server/demo';
+import { demoLimiter } from '$lib/server/demo-limit';
 
-export const POST: RequestHandler = ({ cookies, url }) => {
+export const POST: RequestHandler = ({ cookies, url, request, locals, getClientAddress }) => {
+	// CF-Connecting-IP is trusted only in demo mode, where the tunnel is the only way in.
+	const ip = (locals.authKind === 'demo' && request.headers.get('cf-connecting-ip')) || getClientAddress();
+	const verdict = demoLimiter.check(ip, countDemoUsers());
+	if (verdict !== 'ok') redirect(303, `/signin?demo=${verdict}`);
+
 	const userId = createDemoUser();
 	const session = createSession(userId);
 	cookies.set(SESSION_COOKIE, session.id, sessionCookieAttrs(url.protocol === 'https:'));
