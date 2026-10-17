@@ -89,7 +89,7 @@ test('rejects duplicate and unknown action IDs before classification', async () 
 		async (baseUrl) => {
 			for (const options of [
 				[OPTIONS[0], OPTIONS[0]],
-				[{ id: 'invent-an-action', description: 'Not in Longhand.' }]
+				[{ id: 'invent-an-action', description: 'Not in Split.' }]
 			]) {
 				const result = await request(baseUrl, '/classify', { text: 'help', options });
 				assert.equal(result.status, 400);
