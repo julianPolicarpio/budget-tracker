@@ -16,6 +16,8 @@
 	import { onMount } from 'svelte';
 	import { clearAll } from '$lib/outbox';
 
+	let { data } = $props();
+
 	/**
 	 * "Cleared on sign-out" (Spec §6, task A5). This screen is the one place a
 	 * signed-out browser always lands — an explicit sign-out, an expired
@@ -92,8 +94,15 @@
 			<form method="POST" action="/demo">
 				<button class="primary" type="submit">Try the demo</button>
 			</form>
-			<a class="secondary" href="/auth/google">Sign in with Google</a>
+			{#if !data.demoOnly}
+				<a class="secondary" href="/auth/google">Sign in with Google</a>
+			{/if}
 		</div>
+		{#if data.notice === 'busy'}
+			<p class="note" role="status">The demo is busy. Try again in a few minutes.</p>
+		{:else if data.notice === 'too-many'}
+			<p class="note" role="status">You have started several demos in the last hour. Try again later.</p>
+		{/if}
 		<p class="note">
 			The demo is the real app with ninety days of history in it. No email, nothing to install, and
 			it deletes itself after a day.

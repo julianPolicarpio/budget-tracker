@@ -12,6 +12,8 @@ declare global {
 			 * `/api/health`) may run with this unset — they do not read it.
 			 */
 			userId: number;
+			/** Which auth mode this process runs in; set first thing by hooks.server.ts. */
+			authKind: 'single-user' | 'demo' | 'google';
 		}
 		// interface PageData {}
 		// interface PageState {}

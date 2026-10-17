@@ -1,5 +1,5 @@
 import type { Handle } from '@sveltejs/kit';
-import { redirect } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import { startScheduler } from '$lib/server/jobs';
 import {
 	AuthConfigError,
@@ -31,7 +31,7 @@ console.log(
 	authMode.kind === 'google'
 		? `[split] auth: Google sign-in enabled (origin ${authMode.origin})`
 		: authMode.kind === 'demo'
-			? '[split] auth: demo mode'
+			? '[split] auth: public demo — every visitor gets their own 24-hour tenant'
 			: '[split] auth: single-user mode — every request is user 1 (GOOGLE_CLIENT_ID is not set)'
 );
 
@@ -80,10 +80,14 @@ export const handle: Handle = ({ event, resolve }) => {
 		}
 	}
 
+	event.locals.authKind = authMode.kind;
+
 	if (authMode.kind === 'single-user') {
 		event.locals.userId = 1;
 		return resolve(event);
 	}
+
+	if (authMode.kind === 'demo' && event.url.pathname.startsWith('/auth/')) error(404, 'Not found');
 
 	const sessionId = event.cookies.get(SESSION_COOKIE);
 	const session = sessionId ? resolveSession(sessionId) : null;
