@@ -13,11 +13,17 @@
 import { redirect, type RequestHandler } from '@sveltejs/kit';
 import { createSession, SESSION_COOKIE, sessionCookieAttrs } from '$lib/server/auth';
 import { countDemoUsers, createDemoUser } from '$lib/server/demo';
-import { demoLimiter } from '$lib/server/demo-limit';
+import { clientIp, demoLimiter } from '$lib/server/demo-limit';
 
 export const POST: RequestHandler = ({ cookies, url, request, locals, getClientAddress }) => {
-	// CF-Connecting-IP is trusted only in demo mode, where the tunnel is the only way in.
-	const ip = (locals.authKind === 'demo' && request.headers.get('cf-connecting-ip')) || getClientAddress();
+	// CF-Connecting-IP is trusted only in demo mode, where the tunnel is the only
+	// way in: auth.ts pins HOST to 127.0.0.1 in demo mode, so nothing can reach
+	// the server without passing through Cloudflare, which sets the header.
+	const ip = clientIp({
+		authKind: locals.authKind,
+		cfHeader: request.headers.get('cf-connecting-ip'),
+		fallback: getClientAddress()
+	});
 	const verdict = demoLimiter.check(ip, countDemoUsers());
 	if (verdict !== 'ok') redirect(303, `/signin?demo=${verdict}`);
 
