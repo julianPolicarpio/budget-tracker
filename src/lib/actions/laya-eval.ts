@@ -8,6 +8,7 @@ export interface EvalRow extends EvalCase {
 	margin: number | null;
 	latencyMs: number | null;
 	choices: string[]; // what /api/intent would offer
+	parseKind?: string; // the raw entry-parser kind, before any routing
 }
 export interface Thresholds { probability: number; margin: number; allowed: string[]; }
 

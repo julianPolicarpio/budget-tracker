@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { applyMigrations } from '../../../../scripts/apply-migrations.js';
+import { parseEntry } from '$lib/entry-parser';
 import type { EvalCase, EvalRow } from '$lib/actions/laya-eval';
 import type { Criteria } from '$lib/actions/routing';
 
@@ -63,11 +64,25 @@ describe.skipIf(!ENABLED)('Laya eval (opt-in)', () => {
 
 		const rows: EvalRow[] = [];
 		for (const c of cases) {
-			const p = m.intent.resolveProtectedIntent(c.text, m.entry.buildParseContext(userId), minorUnits);
+			const context = m.entry.buildParseContext(userId);
+			const p = m.intent.resolveProtectedIntent(c.text, context, minorUnits);
+			// Same comma stripping as resolveProtectedIntent, so the kind matches what it saw.
+			const parseKind = parseEntry(c.text.replace(/(?<=\d),(?=\d{3}\b)/g, ''), context, minorUnits).kind;
 			if (p.kind !== 'choices') {
 				const decided = p.kind === 'spending' ? 'log-spending' : p.kind === 'existing' ? 'record-payment' : p.actionId;
 				rows.push({ ...c, route: 'parser', decided, probability: null, margin: null, latencyMs: null,
-					choices: p.kind === 'action' ? [p.actionId] : m.routing.fallbackChoices(c.text) });
+					choices: p.kind === 'action' ? [p.actionId] : m.routing.fallbackChoices(c.text), parseKind });
+				continue;
+			}
+			// Models the Continue tap. When the parser answers `ask_category` ("coffee 140") the UI
+			// shows category chips that log it as spending, and /api/intent is only called if the user
+			// taps Continue, meaning "this is not plain spending". So a case whose true intent is
+			// log-spending never reaches the model; every other `choices` case does (the user tapped
+			// Continue). This deliberately uses the corpus label to stand in for the user's own
+			// knowledge of what they meant.
+			if (c.expected === 'log-spending' && (parseKind === 'ask_category' || parseKind === 'transaction')) {
+				rows.push({ ...c, route: 'parser', decided: 'log-spending', probability: null, margin: null,
+					latencyMs: null, choices: m.routing.fallbackChoices(c.text), parseKind });
 				continue;
 			}
 			const options = m.routing.modelOptions(c.text, criteria);
@@ -94,7 +109,7 @@ describe.skipIf(!ENABLED)('Laya eval (opt-in)', () => {
 			const decided = body ? body.id : null;
 			rows.push({ ...c, route: decided === null ? 'fallback' : 'model', decided,
 				probability: body?.probability ?? null, margin: body?.margin ?? null, latencyMs,
-				choices: m.routing.routedChoices(decided, c.text) });
+				choices: m.routing.routedChoices(decided, c.text), parseKind });
 		}
 
 		const summary = m.evalLib.summarise(rows);
