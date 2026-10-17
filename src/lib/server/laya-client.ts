@@ -25,7 +25,7 @@ function configuredUrl(): URL | null {
 	}
 }
 
-function validChoice(value: unknown, allowedIds: readonly string[]): LayaChoice | null {
+export function validChoice(value: unknown, allowedIds: readonly string[]): LayaChoice | null {
 	if (!value || typeof value !== 'object') return null;
 	const { id, probability, margin } = value as Record<string, unknown>;
 	if (typeof id !== 'string' || !allowedIds.includes(id)) return null;

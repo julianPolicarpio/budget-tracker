@@ -20,6 +20,7 @@ describe.skipIf(!ENABLED)('Laya eval (opt-in)', () => {
 		today: typeof import('$lib/server/today');
 		routing: typeof import('$lib/actions/routing');
 		evalLib: typeof import('$lib/actions/laya-eval');
+		client: typeof import('$lib/server/laya-client');
 	};
 	let userId: number;
 
@@ -33,15 +34,25 @@ describe.skipIf(!ENABLED)('Laya eval (opt-in)', () => {
 			entry: await import('$lib/server/entry'),
 			today: await import('$lib/server/today'),
 			routing: await import('$lib/actions/routing'),
-			evalLib: await import('$lib/actions/laya-eval')
+			evalLib: await import('$lib/actions/laya-eval'),
+			client: await import('$lib/server/laya-client')
 		};
 	});
 
 	it('runs the corpus through the real router and the real sidecar', async () => {
-		const split = (process.env.LAYA_SPLIT ?? 'dev') as 'dev' | 'test';
-		const criteria = (process.env.LAYA_CRITERIA ?? 'labels') as Criteria;
+		const split = process.env.LAYA_SPLIT ?? 'dev';
+		if (split !== 'dev' && split !== 'test') throw new Error(`LAYA_SPLIT must be dev or test, got "${split}"`);
+		const criteria: Criteria = (process.env.LAYA_CRITERIA ?? 'labels') as Criteria;
+		if (criteria !== 'labels' && criteria !== 'descriptions') {
+			throw new Error(`LAYA_CRITERIA must be labels or descriptions, got "${criteria}"`);
+		}
+		const base = process.env.LAYA_URL;
+		if (!base) throw new Error('LAYA_URL is required, e.g. http://127.0.0.1:3010');
+		const host = new URL(base).hostname;
+		if (host !== '127.0.0.1' && host !== 'localhost') {
+			throw new Error(`LAYA_URL must point at 127.0.0.1 or localhost, got "${host}"`);
+		}
 		const label = process.env.LAYA_RUN_LABEL ?? `${split}-${criteria}`;
-		const base = process.env.LAYA_URL!;
 		const minorUnits = m.today.loadSettings(userId)!.minorUnits;
 		const cases: EvalCase[] = readFileSync(resolve('eval/laya/corpus.jsonl'), 'utf8')
 			.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l)).filter((c: EvalCase) => c.split === split);
@@ -61,14 +72,26 @@ describe.skipIf(!ENABLED)('Laya eval (opt-in)', () => {
 			}
 			const options = m.routing.modelOptions(c.text, criteria);
 			const t0 = performance.now();
-			const res = await fetch(new URL('/classify', base), {
-				method: 'POST', headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ text: c.text, options })
-			});
-			const latencyMs = Math.round(performance.now() - t0);
-			const body = res.ok ? await res.json() : null;
-			const timedOut = latencyMs > m.evalLib.TIMEOUT_MS;
-			const decided = body && !timedOut ? (body.id as string) : null;
+			let answer: { id: string; probability: number; margin: number } | null = null;
+			let completed = false;
+			try {
+				const res = await fetch(new URL('/classify', base), {
+					method: 'POST', headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ text: c.text, options }),
+					signal: AbortSignal.timeout(5000)
+				});
+				if (res.ok) {
+					const json = await res.json();
+					completed = true;
+					answer = m.client.validChoice(json, options.map((o) => o.id));
+				} else completed = true;
+			} catch {
+				// network error, abort or invalid JSON: handled as a fallback below
+			}
+			const latencyMs = completed ? Math.round(performance.now() - t0) : null;
+			const timedOut = latencyMs !== null && latencyMs > m.evalLib.TIMEOUT_MS;
+			const body = answer && !timedOut ? answer : null;
+			const decided = body ? body.id : null;
 			rows.push({ ...c, route: decided === null ? 'fallback' : 'model', decided,
 				probability: body?.probability ?? null, margin: body?.margin ?? null, latencyMs,
 				choices: m.routing.routedChoices(decided, c.text) });
