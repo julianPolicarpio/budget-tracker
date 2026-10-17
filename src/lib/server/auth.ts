@@ -25,7 +25,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { sqlite, unsafeDb, schema } from './db';
@@ -290,6 +290,23 @@ function resolveDemoMode(env: NodeJS.ProcessEnv, cwd: string): AuthMode {
 	const dbDir = realDir(dirname(resolve(cwd, db)));
 	if (dbDir === liveDataDir || dbDir.startsWith(liveDataDir + sep)) {
 		throw refuse(`DATABASE_URL (${db}) is inside ${liveDataDir}, where the real database lives.`);
+	}
+	const inLive = (p: string) => p === liveDataDir || p.startsWith(liveDataDir + sep);
+	const dbFile = resolve(cwd, db);
+	if (existsSync(dbFile)) {
+		// A symlink at the file itself: dirname alone cannot see it.
+		if (inLive(realpathSync(dbFile))) {
+			throw refuse(`DATABASE_URL (${db}) resolves to a file inside ${liveDataDir}.`);
+		}
+		// A hard link has no path to resolve; the inode is the only tell.
+		const liveFile = join(cwd, 'data', 'split.db');
+		if (existsSync(liveFile)) {
+			const a = statSync(dbFile);
+			const b = statSync(liveFile);
+			if (a.dev === b.dev && a.ino === b.ino) {
+				throw refuse(`DATABASE_URL (${db}) is the same file as ${liveFile}.`);
+			}
+		}
 	}
 	return { kind: 'demo' };
 }

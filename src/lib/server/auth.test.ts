@@ -7,7 +7,7 @@
  */
 
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, symlinkSync } from 'node:fs';
+import { linkSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { applyMigrations } from '../../../scripts/apply-migrations.js';
@@ -283,6 +283,30 @@ describe('resolveAuthMode — demo mode', () => {
 		const link = join(dir, 'sneaky');
 		symlinkSync(join(repo, 'data'), link);
 		expect(() => m.auth.resolveAuthMode({ SPLIT_DEMO_MODE: '1', HOST: '127.0.0.1', DATABASE_URL: join(link, 'other.db') }, repo)).toThrow(m.auth.AuthConfigError);
+	});
+});
+
+describe('resolveAuthMode — demo mode, links to the live file', () => {
+	const dir = mkdtempSync(join(tmpdir(), 'split-demo-link-'));
+	const repo = join(dir, 'repo');
+	mkdirSync(join(repo, 'data'), { recursive: true });
+	const live = join(repo, 'data', 'split.db');
+	writeFileSync(live, 'fake');
+	mkdirSync(join(dir, 'demo'), { recursive: true });
+	const env = (db: string) => ({ SPLIT_DEMO_MODE: '1', HOST: '127.0.0.1', DATABASE_URL: db });
+
+	it('refuses a symlink outside data/ that points at the live file', () => {
+		const link = join(dir, 'demo', 'sym.db');
+		symlinkSync(live, link);
+		expect(() => m.auth.resolveAuthMode(env(link), repo)).toThrow(m.auth.AuthConfigError);
+	});
+	it('refuses a hard link outside data/ to the live file', () => {
+		const hard = join(dir, 'demo', 'hard.db');
+		linkSync(live, hard);
+		expect(() => m.auth.resolveAuthMode(env(hard), repo)).toThrow(m.auth.AuthConfigError);
+	});
+	it('still starts with a new file outside data/', () => {
+		expect(m.auth.resolveAuthMode(env(join(dir, 'demo', 'fresh.db')), repo)).toEqual({ kind: 'demo' });
 	});
 });
 
