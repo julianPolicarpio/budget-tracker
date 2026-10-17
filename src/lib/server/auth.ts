@@ -25,11 +25,11 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { existsSync, realpathSync, statSync } from 'node:fs';
-import { basename, dirname, join, resolve, sep } from 'node:path';
+import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { sqlite, unsafeDb, schema } from './db';
 import type { Account } from './db/schema';
+import { assertDemoDatabase, demoModeEnabled } from '../../../scripts/demo-guard.js';
 
 // ─── Cookies ────────────────────────────────────────────────────────────
 
@@ -257,56 +257,36 @@ function isLoopbackOrUnset(host: string | undefined): boolean {
 	return host === undefined || host === '' || LOOPBACK_HOSTS.has(host);
 }
 
-/** Resolve symlinks on the deepest part of the path that exists. */
-function realDir(p: string): string {
-	let dir = resolve(p);
-	const tail: string[] = [];
-	while (!existsSync(dir) && dirname(dir) !== dir) {
-		tail.unshift(basename(dir));
-		dir = dirname(dir);
-	}
-	return join(realpathSync(dir), ...tail);
-}
-
 /**
  * The public demo: every visitor gets their own seeded tenant via /demo.
- * Its one job is to be unable to reach the owner's money, so it refuses to
- * start unless the database lives outside this checkout's data/ directory.
+ * Its one job is to be unable to reach the owner's money.
+ *
+ * The database decision lives in `scripts/demo-guard.js`, shared with
+ * `scripts/serve.js`, which runs it before migrating anything. Here it is the
+ * second check in a built server and the only one under `vite dev`, where
+ * db/index.ts has already opened DATABASE_URL (creating an empty file if it
+ * was missing; the guard accepts an empty file and marks it).
+ *
+ * `cwd` only feeds the path checks. They are defence in depth: from the
+ * wrong cwd they look in the wrong place, and the contents check refuses the
+ * real database anyway.
  */
 function resolveDemoMode(env: NodeJS.ProcessEnv, cwd: string): AuthMode {
-	const refuse = (why: string) =>
-		new AuthConfigError(`\nRefusing to start the demo.\n\n  ${why}\n`);
+	const refuse = (why: string) => new AuthConfigError(`\nRefusing to start the demo: ${why}\n`);
 	if (env.GOOGLE_CLIENT_ID?.trim()) {
 		throw refuse('SPLIT_DEMO_MODE=1 cannot be combined with GOOGLE_CLIENT_ID.');
 	}
-	if (!isLoopbackOrUnset(env.HOST) || !env.HOST) {
-		throw refuse(
-			`HOST must be a loopback address; the tunnel is the only way in. Got "${env.HOST ?? ''}".`
-		);
+	// Exactly the tunnel's target. 'localhost' and '::1' are loopback too, but
+	// the tunnel points at 127.0.0.1, and anything else is a config mistake.
+	if (env.HOST !== '127.0.0.1') {
+		throw refuse(`HOST must be exactly 127.0.0.1; the tunnel is the only way in. Got "${env.HOST ?? ''}".`);
 	}
 	const db = env.DATABASE_URL?.trim();
 	if (!db) throw refuse('DATABASE_URL must point at the demo database.');
-	const liveDataDir = realDir(join(cwd, 'data'));
-	const dbDir = realDir(dirname(resolve(cwd, db)));
-	if (dbDir === liveDataDir || dbDir.startsWith(liveDataDir + sep)) {
-		throw refuse(`DATABASE_URL (${db}) is inside ${liveDataDir}, where the real database lives.`);
-	}
-	const inLive = (p: string) => p === liveDataDir || p.startsWith(liveDataDir + sep);
-	const dbFile = resolve(cwd, db);
-	if (existsSync(dbFile)) {
-		// A symlink at the file itself: dirname alone cannot see it.
-		if (inLive(realpathSync(dbFile))) {
-			throw refuse(`DATABASE_URL (${db}) resolves to a file inside ${liveDataDir}.`);
-		}
-		// A hard link has no path to resolve; the inode is the only tell.
-		const liveFile = join(cwd, 'data', 'split.db');
-		if (existsSync(liveFile)) {
-			const a = statSync(dbFile);
-			const b = statSync(liveFile);
-			if (a.dev === b.dev && a.ino === b.ino) {
-				throw refuse(`DATABASE_URL (${db}) is the same file as ${liveFile}.`);
-			}
-		}
+	try {
+		assertDemoDatabase(db, join(cwd, 'data'));
+	} catch (err) {
+		throw new AuthConfigError(`\n${err instanceof Error ? err.message : String(err)}\n`);
 	}
 	return { kind: 'demo' };
 }
@@ -342,7 +322,13 @@ export function resolveAuthMode(
 	env: NodeJS.ProcessEnv = process.env,
 	cwd: string = process.cwd()
 ): AuthMode {
-	if (env.SPLIT_DEMO_MODE === '1') return resolveDemoMode(env, cwd);
+	let demo: boolean;
+	try {
+		demo = demoModeEnabled(env);
+	} catch (err) {
+		throw new AuthConfigError(`\n${err instanceof Error ? err.message : String(err)}\n`);
+	}
+	if (demo) return resolveDemoMode(env, cwd);
 	const clientId = env.GOOGLE_CLIENT_ID?.trim();
 
 	if (!clientId) {

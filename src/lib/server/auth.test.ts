@@ -7,7 +7,8 @@
  */
 
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { linkSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import Database from 'better-sqlite3';
+import { copyFileSync, linkSync, mkdirSync, mkdtempSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { applyMigrations } from '../../../scripts/apply-migrations.js';
@@ -260,53 +261,92 @@ describe('google-oauth: exchangeCodeForProfile', () => {
 });
 
 describe('resolveAuthMode — demo mode', () => {
+	// A fake checkout whose data/split.db holds a real table, like the owner's.
 	const dir = mkdtempSync(join(tmpdir(), 'split-demo-mode-'));
 	const repo = join(dir, 'repo');
 	mkdirSync(join(repo, 'data'), { recursive: true });
+	const live = join(repo, 'data', 'split.db');
+	const seed = new Database(live);
+	seed.exec('CREATE TABLE txn (id INTEGER PRIMARY KEY, amount INTEGER)');
+	seed.exec('INSERT INTO txn (amount) VALUES (12345)');
+	seed.close();
 	const demoDb = join(dir, 'demo', 'demo.db');
 	mkdirSync(dirname(demoDb), { recursive: true });
+	const env = (extra: Record<string, string | undefined>) => ({
+		SPLIT_DEMO_MODE: '1',
+		HOST: '127.0.0.1',
+		DATABASE_URL: demoDb,
+		...extra
+	});
 
-	it('starts with loopback, no Google, and a DB outside the repo data dir', () => {
-		expect(m.auth.resolveAuthMode({ SPLIT_DEMO_MODE: '1', HOST: '127.0.0.1', DATABASE_URL: demoDb }, repo)).toEqual({ kind: 'demo' });
+	/** Refused with an AuthConfigError whose message names the reason. */
+	function expectRefused(e: NodeJS.ProcessEnv, cwd: string, substring: string) {
+		let caught: unknown;
+		try {
+			m.auth.resolveAuthMode(e, cwd);
+		} catch (err) {
+			caught = err;
+		}
+		expect(caught).toBeInstanceOf(m.auth.AuthConfigError);
+		expect((caught as Error).message).toContain('Refusing to start the demo');
+		expect((caught as Error).message).toContain(substring);
+	}
+
+	it('starts on 127.0.0.1, no Google, with a new DB outside the repo data dir', () => {
+		expect(m.auth.resolveAuthMode(env({}), repo)).toEqual({ kind: 'demo' });
+	});
+	it("throws on SPLIT_DEMO_MODE='true' rather than falling through to single-user", () => {
+		for (const v of ['true', 'yes', '1 ']) {
+			let caught: unknown;
+			try {
+				m.auth.resolveAuthMode({ SPLIT_DEMO_MODE: v, HOST: '127.0.0.1' }, repo);
+			} catch (err) {
+				caught = err;
+			}
+			expect(caught).toBeInstanceOf(m.auth.AuthConfigError);
+			expect((caught as Error).message).toContain('SPLIT_DEMO_MODE');
+		}
 	});
 	it('refuses alongside Google sign-in', () => {
-		expect(() => m.auth.resolveAuthMode({ SPLIT_DEMO_MODE: '1', HOST: '127.0.0.1', DATABASE_URL: demoDb, GOOGLE_CLIENT_ID: 'x' }, repo)).toThrow(m.auth.AuthConfigError);
+		expectRefused(env({ GOOGLE_CLIENT_ID: 'x' }), repo, 'GOOGLE_CLIENT_ID');
 	});
-	it('refuses a non-loopback bind', () => {
-		expect(() => m.auth.resolveAuthMode({ SPLIT_DEMO_MODE: '1', HOST: '0.0.0.0', DATABASE_URL: demoDb }, repo)).toThrow(m.auth.AuthConfigError);
+	it('refuses every HOST but exactly 127.0.0.1, which is what the tunnel targets', () => {
+		for (const host of [undefined, '', 'localhost', '::1', '[::1]', '0.0.0.0']) {
+			expectRefused(env({ HOST: host }), repo, 'HOST must be exactly 127.0.0.1');
+		}
 	});
 	it('refuses with no DATABASE_URL', () => {
-		expect(() => m.auth.resolveAuthMode({ SPLIT_DEMO_MODE: '1', HOST: '127.0.0.1' }, repo)).toThrow(m.auth.AuthConfigError);
+		expectRefused(env({ DATABASE_URL: undefined }), repo, 'DATABASE_URL must point');
 	});
-	it('refuses the live database, directly or through a symlink', () => {
-		expect(() => m.auth.resolveAuthMode({ SPLIT_DEMO_MODE: '1', HOST: '127.0.0.1', DATABASE_URL: join(repo, 'data', 'split.db') }, repo)).toThrow(m.auth.AuthConfigError);
+	it('refuses the live database by path, directly or through a symlinked dir', () => {
+		expectRefused(env({ DATABASE_URL: live }), repo, 'where the real database lives');
 		const link = join(dir, 'sneaky');
 		symlinkSync(join(repo, 'data'), link);
-		expect(() => m.auth.resolveAuthMode({ SPLIT_DEMO_MODE: '1', HOST: '127.0.0.1', DATABASE_URL: join(link, 'other.db') }, repo)).toThrow(m.auth.AuthConfigError);
+		expectRefused(env({ DATABASE_URL: join(link, 'other.db') }), repo, 'where the real database lives');
 	});
-});
-
-describe('resolveAuthMode — demo mode, links to the live file', () => {
-	const dir = mkdtempSync(join(tmpdir(), 'split-demo-link-'));
-	const repo = join(dir, 'repo');
-	mkdirSync(join(repo, 'data'), { recursive: true });
-	const live = join(repo, 'data', 'split.db');
-	writeFileSync(live, 'fake');
-	mkdirSync(join(dir, 'demo'), { recursive: true });
-	const env = (db: string) => ({ SPLIT_DEMO_MODE: '1', HOST: '127.0.0.1', DATABASE_URL: db });
-
+	it('refuses the live database from the wrong cwd, by its contents (C1)', () => {
+		// cwd "/" is what launchd gives a job with no WorkingDirectory.
+		expectRefused(env({ DATABASE_URL: live }), '/', 'is not a demo database');
+	});
+	it('refuses a plain copy of the live database outside data/, by its contents', () => {
+		const copy = join(dir, 'demo', 'copy.db');
+		copyFileSync(live, copy);
+		expectRefused(env({ DATABASE_URL: copy }), repo, 'is not a demo database');
+	});
 	it('refuses a symlink outside data/ that points at the live file', () => {
 		const link = join(dir, 'demo', 'sym.db');
 		symlinkSync(live, link);
-		expect(() => m.auth.resolveAuthMode(env(link), repo)).toThrow(m.auth.AuthConfigError);
+		expectRefused(env({ DATABASE_URL: link }), repo, 'resolves to');
 	});
 	it('refuses a hard link outside data/ to the live file', () => {
 		const hard = join(dir, 'demo', 'hard.db');
 		linkSync(live, hard);
-		expect(() => m.auth.resolveAuthMode(env(hard), repo)).toThrow(m.auth.AuthConfigError);
+		expectRefused(env({ DATABASE_URL: hard }), repo, 'is the same file as');
 	});
-	it('still starts with a new file outside data/', () => {
-		expect(m.auth.resolveAuthMode(env(join(dir, 'demo', 'fresh.db')), repo)).toEqual({ kind: 'demo' });
+	it('still starts with another new file outside data/', () => {
+		expect(m.auth.resolveAuthMode(env({ DATABASE_URL: join(dir, 'demo', 'fresh.db') }), repo)).toEqual({
+			kind: 'demo'
+		});
 	});
 });
 
