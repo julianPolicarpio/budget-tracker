@@ -24,14 +24,20 @@
 // The contents check opens the file read-only. A rollback-journal database is
 // left exactly as it was, with nothing created beside it. A WAL-mode database
 // cannot be read without its -wal and -shm, so SQLite creates them (an empty
-// -wal, an index -shm) if they are missing and leaves them. No page of the
-// database is written. That is the one side effect, and it only happens to a
-// file that already got past every path check.
+// -wal, an index -shm) if they are missing and leaves them. No database page
+// is written (a read-only open can still write lock bookkeeping to -shm).
+// That is the one side effect, and it only happens to a file that already got
+// past every path check.
+//
+// A race remains between the path checks and the marker open: someone could
+// swap the file in between. That needs local write access, which is outside
+// the threat model here (misconfiguration, not a local attacker).
 
 import Database from 'better-sqlite3';
 import {
 	closeSync,
 	lstatSync,
+	readdirSync,
 	mkdirSync,
 	openSync,
 	readSync,
@@ -50,7 +56,7 @@ const PREFIX = 'Refusing to start the demo:';
  *
  * @typedef {'bad-demo-flag' | 'missing-path' | 'inside-live-data-dir'
  *   | 'resolves-into-live-data-dir' | 'unresolvable-link' | 'same-file-as-live-db'
- *   | 'not-sqlite' | 'unreadable' | 'not-a-demo-database'} DemoGuardReason
+ *   | 'not-sqlite' | 'unreadable' | 'live-looking-path' | 'not-a-demo-database'} DemoGuardReason
  */
 export class DemoGuardError extends Error {
 	/**
@@ -133,7 +139,10 @@ function within(p, root) {
 function inspect(file, shown) {
 	// A zero-byte file is an empty database: SQLite treats it as one, and
 	// there is nothing to read.
-	if (statSync(file).size === 0) return 'empty';
+	if (statSync(file).size === 0) {
+		refuseLiveJournal(file, shown);
+		return 'empty';
+	}
 
 	const header = Buffer.alloc(16);
 	const fd = openSync(file, 'r');
@@ -169,6 +178,65 @@ function inspect(file, shown) {
 			`${MARKER_TABLE} marker, so it may be real data. Point DATABASE_URL at a new or ` +
 			`empty file outside the data directory.`
 	);
+}
+
+/**
+ * A 0-byte (or missing) file is empty only if no journal beside it holds
+ * pages. A non-empty -wal or -journal next to it is someone's uncommitted or
+ * uncheckpointed data, and opening the file read-write would replay or
+ * delete it.
+ *
+ * @param {string} file
+ * @param {string} shown
+ */
+function refuseLiveJournal(file, shown) {
+	for (const suffix of ['-wal', '-journal']) {
+		let size = 0;
+		try {
+			size = statSync(file + suffix).size;
+		} catch {
+			continue;
+		}
+		if (size > 0) {
+			throw new DemoGuardError(
+				'unreadable',
+				`DATABASE_URL (${shown}) is empty but ${basename(file)}${suffix} beside it is not; ` +
+					`that is data from another database, so it is left alone.`
+			);
+		}
+	}
+}
+
+/**
+ * Does this look like the owner's database in some checkout: named split.db,
+ * or sitting next to a backups/ directory of split-*.db files? A second
+ * checkout has its own data/, which the live-dir check cannot know about,
+ * and a demo there would run the nightly backup into it and prune it.
+ *
+ * @param {string} file
+ * @param {string} shown
+ */
+function refuseLiveLooking(file, shown) {
+	if (basename(file).toLowerCase() === 'split.db') {
+		throw new DemoGuardError(
+			'live-looking-path',
+			`DATABASE_URL (${shown}) is named split.db, the real database's name. ` +
+				`Give the demo database another name, outside any checkout's data directory.`
+		);
+	}
+	let backups = [];
+	try {
+		backups = readdirSync(join(dirname(file), 'backups'));
+	} catch {
+		return;
+	}
+	if (backups.some((f) => /^split-.*\.db$/i.test(f))) {
+		throw new DemoGuardError(
+			'live-looking-path',
+			`DATABASE_URL (${shown}) sits next to a backups/ directory of split-*.db files, ` +
+				`which is where the real database keeps its backups.`
+		);
+	}
 }
 
 /**
@@ -238,6 +306,11 @@ export function assertDemoDatabase(dbPath, liveDataDir) {
 		);
 	}
 
+	// A second checkout, or anything else that looks like the owner's
+	// database, by the path as given and by its canonical directory.
+	refuseLiveLooking(file, shown);
+	refuseLiveLooking(join(canonical(dirname(file)), basename(file)), shown);
+
 	const exists = lexists(file);
 	if (exists) {
 		// The file itself may be a symlink, which the directory cannot show.
@@ -257,6 +330,7 @@ export function assertDemoDatabase(dbPath, liveDataDir) {
 				`DATABASE_URL (${shown}) resolves to ${real}, inside ${live}.`
 			);
 		}
+		refuseLiveLooking(real, shown);
 		// A hard link has no path to resolve; the inode is the only tell.
 		const liveFile = join(live, 'split.db');
 		if (lexists(liveFile)) {
@@ -272,6 +346,7 @@ export function assertDemoDatabase(dbPath, liveDataDir) {
 	}
 
 	// (c) The real guard: empty, or already a demo database.
+	if (!exists) refuseLiveJournal(file, shown);
 	const state = exists ? inspect(file, shown) : 'empty';
 
 	// (d) The only write, and only after (b) and (c).

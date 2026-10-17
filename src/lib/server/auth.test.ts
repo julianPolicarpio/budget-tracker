@@ -326,7 +326,11 @@ describe('resolveAuthMode — demo mode', () => {
 	});
 	it('refuses the live database from the wrong cwd, by its contents (C1)', () => {
 		// cwd "/" is what launchd gives a job with no WorkingDirectory.
-		expectRefused(env({ DATABASE_URL: live }), '/', 'is not a demo database');
+		expectRefused(env({ DATABASE_URL: live }), '/', 'is named split.db');
+		// Renamed, the name check cannot see it; the contents check still does.
+		const renamed = join(dir, 'demo', 'renamed.db');
+		copyFileSync(live, renamed);
+		expectRefused(env({ DATABASE_URL: renamed }), '/', 'is not a demo database');
 	});
 	it('refuses a plain copy of the live database outside data/, by its contents', () => {
 		const copy = join(dir, 'demo', 'copy.db');

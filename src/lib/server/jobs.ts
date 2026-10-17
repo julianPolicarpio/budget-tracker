@@ -24,10 +24,20 @@ import { localToday } from './clock';
 import { loadSettings } from './today';
 import { reapDemoUsers } from './demo';
 import { dirname, join } from 'node:path';
+import { demoModeEnabled } from '../../../scripts/demo-guard.js';
 
 export type JobKey = 'rollover' | 'irregulars' | 'backup';
 
 const JOB_KEYS = ['rollover', 'irregulars', 'backup'] as const satisfies readonly JobKey[];
+
+/**
+ * The date-keyed jobs this process runs. A public demo has no reason to write
+ * backups next to its database, and runBackup also prunes that directory, so
+ * demo mode drops the backup and keeps rollover and irregulars.
+ */
+export function scheduledJobKeys(env: NodeJS.ProcessEnv = process.env): JobKey[] {
+	return demoModeEnabled(env) ? JOB_KEYS.filter((k) => k !== 'backup') : [...JOB_KEYS];
+}
 
 /** How often to re-ask whether a date-keyed job still owes a run. */
 const CATCH_UP_INTERVAL_MS = 15 * 60_000;
@@ -176,9 +186,10 @@ export function startScheduler(): void {
 	// tick fires; it does not scope which users' work runs on it.
 	const settings = loadSettings(1);
 	const timezone = settings?.timezone ?? 'UTC';
+	const keys = scheduledJobKeys();
 
 	// Catch up anything missed while the process was down, before scheduling.
-	for (const key of JOB_KEYS) {
+	for (const key of keys) {
 		try {
 			const detail = runJob(key);
 			if (detail) console.log(`[jobs] catch-up ${key}: ${detail}`);
@@ -193,7 +204,7 @@ export function startScheduler(): void {
 
 	schedule('0 2 * * *', 'rollover', timezone);
 	schedule('15 2 * * *', 'irregulars', timezone);
-	schedule('0 3 * * *', 'backup', timezone);
+	if (keys.includes('backup')) schedule('0 3 * * *', 'backup', timezone);
 
 	/*
 	 * Reaping demo tenants is global, not per-user, so it is scheduled directly
@@ -220,7 +231,7 @@ export function startScheduler(): void {
 	sweepDemoTenants();
 
 	setInterval(() => {
-		for (const key of JOB_KEYS) {
+		for (const key of keys) {
 			try {
 				const detail = runJob(key);
 				if (detail) console.log(`[jobs] caught up ${key}: ${detail}`);

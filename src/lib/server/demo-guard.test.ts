@@ -191,7 +191,12 @@ describe('assertDemoDatabase: the positive check (a database is a demo database 
 		// data dir points nowhere near the real one. The path checks cannot fire.
 		const wrongDataDir = join(r.outside, 'data');
 		const before = fingerprint(r.live);
-		expectRefusal(() => assertDemoDatabase(r.live, wrongDataDir), 'not-a-demo-database');
+		// The live-looking name check fires first now; the contents check below
+		// covers a renamed copy, which no name check can see.
+		expectRefusal(() => assertDemoDatabase(r.live, wrongDataDir), 'live-looking-path');
+		const renamed = join(r.outside, 'renamed.db');
+		copyFileSync(r.live, renamed);
+		expectRefusal(() => assertDemoDatabase(renamed, wrongDataDir), 'not-a-demo-database');
 		expect(fingerprint(r.live)).toEqual(before);
 	});
 
@@ -266,5 +271,67 @@ describe('assertDemoDatabase: path defence in depth', () => {
 		const hard = join(r.outside, 'hard-live.db');
 		linkSync(r.live, hard);
 		expectRefusal(() => assertDemoDatabase(hard, r.data), 'same-file-as-live-db');
+	});
+});
+
+describe('assertDemoDatabase: live-looking paths (a second checkout of the repo)', () => {
+	it('refuses a missing split.db in another checkout, and does not create it', () => {
+		const r = fakeRepo();
+		const other = join(r.dir, 'second-checkout', 'data');
+		mkdirSync(other, { recursive: true });
+		const db = join(other, 'split.db');
+		expectRefusal(() => assertDemoDatabase(db, r.data), 'live-looking-path');
+		expect(existsSync(db)).toBe(false);
+	});
+
+	it('refuses a 0-byte SPLIT.DB, whatever its case', () => {
+		const r = fakeRepo();
+		const db = join(r.outside, 'SPLIT.DB');
+		writeFileSync(db, '');
+		expectRefusal(() => assertDemoDatabase(db, r.data), 'live-looking-path');
+		expect(statSync(db).size).toBe(0);
+	});
+
+	it('refuses any name in a directory whose backups/ holds split-*.db files', () => {
+		const r = fakeRepo();
+		const dir = join(r.outside, 'looks-live');
+		mkdirSync(join(dir, 'backups'), { recursive: true });
+		writeFileSync(join(dir, 'backups', 'split-2026-10-01.db'), 'backup');
+		expectRefusal(() => assertDemoDatabase(join(dir, 'demo.db'), r.data), 'live-looking-path');
+		expect(listing(dir)).toEqual(['backups']);
+	});
+
+	it('still accepts a directory whose backups/ holds no split-*.db file', () => {
+		const r = fakeRepo();
+		const dir = join(r.outside, 'demo-home');
+		mkdirSync(join(dir, 'backups'), { recursive: true });
+		writeFileSync(join(dir, 'backups', 'notes.txt'), 'x');
+		assertDemoDatabase(join(dir, 'demo.db'), r.data);
+		expect(markerRows(join(dir, 'demo.db'))).toBe(1);
+	});
+});
+
+describe('assertDemoDatabase: a 0-byte file is empty only without a live journal beside it', () => {
+	for (const suffix of ['-wal', '-journal']) {
+		it(`refuses a 0-byte file with a non-empty ${suffix}, and leaves the ${suffix} untouched`, () => {
+			const r = fakeRepo();
+			const db = join(r.outside, `orphan${suffix}.db`);
+			writeFileSync(db, '');
+			const side = db + suffix;
+			writeFileSync(side, Buffer.alloc(4096, 7));
+			const before = fingerprint(side);
+			expectRefusal(() => assertDemoDatabase(db, r.data), 'unreadable');
+			expect(fingerprint(side)).toEqual(before);
+			expect(statSync(db).size).toBe(0);
+		});
+	}
+
+	it('still accepts a 0-byte file whose -wal is also empty', () => {
+		const r = fakeRepo();
+		const db = join(r.outside, 'empty-wal.db');
+		writeFileSync(db, '');
+		writeFileSync(db + '-wal', '');
+		assertDemoDatabase(db, r.data);
+		expect(markerRows(db)).toBe(1);
 	});
 });
