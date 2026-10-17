@@ -50,7 +50,7 @@ services:
       - laya-internal
 
   # Optional local classifier. It has no published port and is deliberately
-  # outside the default `docker compose up` path: Longhand works without it.
+  # outside the default `docker compose up` path: Split works without it.
   #
   # Prefetch once, while deliberately allowing the model download:
   #   docker compose --profile laya run --rm -e LAYA_ALLOW_DOWNLOAD=1 -e LAYA_PREFETCH_ONLY=1 laya
@@ -60,7 +60,7 @@ services:
   laya:
     profiles: ["laya"]
     build: ./laya-service
-    image: longhand-laya:0.1.0
+    image: split-laya:0.1.0
     restart: unless-stopped
 
     environment:
@@ -68,6 +68,8 @@ services:
       # A normal run must use the pre-fetched volume. Set to 1 only for the
       # explicit one-time cache command above.
       LAYA_ALLOW_DOWNLOAD: "0"
+      # The container needs the wildcard bind; laya-internal has no published port.
+      HOST: "0.0.0.0"
 
     volumes:
       - laya-model-cache:/models

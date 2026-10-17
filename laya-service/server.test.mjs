@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import test from 'node:test';
 
-import { createLayaService } from './server.mjs';
+import { createLayaService, listenHost } from './server.mjs';
 
 const OPTIONS = [
 	{ id: 'record-income', description: 'Record money received, such as salary or a refund.' },
@@ -134,4 +134,24 @@ test('reports loading, ready, and unavailable without accepting a classification
 			}
 		);
 	}
+});
+
+test('binds to loopback unless HOST says otherwise', () => {
+	assert.equal(listenHost({}), '127.0.0.1');
+	assert.equal(listenHost({ HOST: '  ' }), '127.0.0.1');
+	assert.equal(listenHost({ HOST: '0.0.0.0' }), '0.0.0.0');
+});
+
+test('rejects an option that is not a Split action, naming Split', async () => {
+	await withService(
+		{ classify: async () => ({ id: 'x', probability: 1, margin: 1 }), getStatus: () => 'ready' },
+		async (baseUrl) => {
+			const result = await request(baseUrl, '/classify', {
+				text: 'hello',
+				options: [{ id: 'not-an-action', description: 'x' }]
+			});
+			assert.equal(result.status, 400);
+			assert.equal(result.body.error, 'Option id is not a Split action.');
+		}
+	);
 });

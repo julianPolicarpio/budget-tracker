@@ -2,6 +2,8 @@ import { createServer } from 'node:http';
 import { access, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+const READY_MARKERS = ['.split-laya-ready', '.longhand-laya-ready'];
+const MODEL_INSTRUCTION = 'Which Split action is requested?';
 const MAX_TEXT_LENGTH = 1_000;
 const MAX_OPTIONS = 8;
 const MAX_BODY_BYTES = 20_000;
@@ -24,6 +26,11 @@ const ACTION_IDS = new Set([
 	'add-edit-rule',
 	'unclear'
 ]);
+
+/** Loopback by default: on a bare Mac the sidecar must not be reachable from the LAN. */
+export function listenHost(env) {
+	return env.HOST?.trim() || '127.0.0.1';
+}
 
 function sendJson(response, status, body) {
 	response.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
@@ -59,7 +66,7 @@ function validateRequest(value) {
 		if (!option || typeof option !== 'object' || typeof option.id !== 'string' || typeof option.description !== 'string') {
 			return 'Each option needs an id and description.';
 		}
-		if (!ACTION_IDS.has(option.id)) return 'Option id is not a Longhand action.';
+		if (!ACTION_IDS.has(option.id)) return 'Option id is not a Split action.';
 		if (ids.has(option.id)) return 'Option ids must be unique.';
 		if (option.description.trim().length === 0 || option.description.length > 1_000) {
 			return 'Option descriptions must contain at most 1000 characters.';
@@ -120,13 +127,12 @@ export function createLayaService({ classify, getStatus, logger = console }) {
 
 async function loadClassifier() {
 	const cacheDir = process.env.LAYA_CACHE ?? '/models';
-	const readyMarker = join(cacheDir, '.longhand-laya-ready');
 	if (process.env.LAYA_ALLOW_DOWNLOAD !== '1') {
-		try {
-			await access(readyMarker);
-		} catch {
-			throw new Error('Laya model cache has not been prefetched.');
-		}
+		const found = await Promise.any(READY_MARKERS.map((m) => access(join(cacheDir, m)))).then(
+			() => true,
+			() => false
+		);
+		if (!found) throw new Error('Laya model cache has not been prefetched.');
 	}
 
 	const { Laya } = await import('@receptron/laya');
@@ -135,14 +141,14 @@ async function loadClassifier() {
 		cacheDir,
 		executionProviders: ['cpu']
 	});
-	await writeFile(readyMarker, 'Loaded successfully.\n');
+	await writeFile(join(cacheDir, READY_MARKERS[0]), 'Loaded successfully.\n');
 	return async (text, options) => {
 		const result = await laya.systemOne(
 			{ text },
 			{
 				action: {
 					type: 'choice',
-					instructions: 'Which Longhand action is requested?',
+					instructions: MODEL_INSTRUCTION,
 					criteria: Object.fromEntries(options.map((option) => [option.id, option.description]))
 				}
 			}
@@ -174,7 +180,7 @@ if (import.meta.main) {
 			throw new Error('Model is loading.');
 		};
 		const server = createLayaService({ classify: (...args) => classify(...args), getStatus: () => status });
-		server.listen(Number(process.env.PORT ?? 3010), '0.0.0.0');
+		server.listen(Number(process.env.PORT ?? 3010), listenHost(process.env));
 		loadClassifier()
 			.then((loadedClassifier) => {
 				classify = loadedClassifier;
