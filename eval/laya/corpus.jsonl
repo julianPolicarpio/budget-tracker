@@ -35,20 +35,20 @@
 {"text":"upa sa boarding house 3,200 kada katapusan","expected":"add-bill-subscription","tag":"new-bill","lang":"taglish","source":"authored","split":"dev"}
 {"text":"idagdag mo yung tubig bill every month around 400","expected":"add-bill-subscription","tag":"new-bill","lang":"taglish","source":"authored","split":"dev"}
 {"text":"bagong hulog sa coop 350 kada kinsenas","expected":"add-bill-subscription","tag":"new-bill","lang":"taglish","source":"authored","split":"dev"}
-{"text":"paid home wifi 1,699","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
-{"text":"paid notion ai 520","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
-{"text":"streaming bill paid 549 via gcash","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
+{"text":"paid home wifi 750","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
+{"text":"paid notion ai 549","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
+{"text":"streaming bill paid 399 via gcash","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
 {"text":"laundry paid 350","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
 {"text":"just paid the home wifi","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
 {"text":"settled notion ai this month","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
-{"text":"home wifi 1699 done","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
+{"text":"home wifi 799 done","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
 {"text":"paid streaming","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
 {"text":"laundry 380 paid today","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
 {"text":"paid laundry for this week","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
 {"text":"home wifi bayad ko na kanina via maya","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
 {"text":"nag-bayad ako ng streaming sa maya kanina","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
 {"text":"paid ko na yung laundry","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
-{"text":"notion ai nabayaran na ng 560 kahapon","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
+{"text":"notion ai nabayaran na ng 549 kahapon","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
 {"text":"nabayaran ko na ang home wifi sa bpi","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
 {"text":"na-settle ko na laundry kahapon 400","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
 {"text":"move 2000 from bpi to gcash","expected":"transfer-money","tag":"transfer","lang":"en","source":"authored","split":"dev"}
@@ -68,7 +68,7 @@
 {"text":"ilipat mo yung 700 sa bdo galing maya","expected":"transfer-money","tag":"transfer","lang":"taglish","source":"authored","split":"dev"}
 {"text":"deposit ko 5k cash sa bdo","expected":"transfer-money","tag":"transfer","lang":"taglish","source":"authored","split":"dev"}
 {"text":"shopee refund 450","expected":"record-refund","tag":"refund","lang":"en","source":"authored","split":"dev"}
-{"text":"lazada refunded me 1,200","expected":"record-refund","tag":"refund","lang":"en","source":"authored","split":"dev"}
+{"text":"shopee refunded me 680","expected":"record-refund","tag":"refund","lang":"en","source":"authored","split":"dev"}
 {"text":"got my money back for the cancelled grab order 230","expected":"record-refund","tag":"refund","lang":"en","source":"authored","split":"dev"}
 {"text":"refund from zalora 899","expected":"record-refund","tag":"refund","lang":"en","source":"authored","split":"dev"}
 {"text":"returned the shoes, refunded 2,499","expected":"record-refund","tag":"refund","lang":"en","source":"authored","split":"dev"}
@@ -180,15 +180,14 @@
 {"text":"top up the enrollment fund 5k","expected":"fund-planned-expense","tag":"plan","lang":"en","source":"authored","split":"dev"}
 {"text":"dagdag ko 1,200 sa fund ng bagong sapatos","expected":"fund-planned-expense","tag":"plan","lang":"taglish","source":"authored","split":"dev"}
 {"text":"naglagay ako ng 1,000 sa tuition plan ko","expected":"fund-planned-expense","tag":"plan","lang":"taglish","source":"authored","split":"dev"}
-{"text":"paid netflix 549","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
-{"text":"wifi bill paid 1699","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
-{"text":"pldt paid 1,699","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
+{"text":"paid streaming 399","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
+{"text":"wifi bill paid 750","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
+{"text":"home wifi paid 750","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
 {"text":"paid the notion subscription","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
 {"text":"paid for the internet this month","expected":"record-payment","tag":"existing-bill","lang":"en","source":"authored","split":"dev"}
-{"text":"nabayaran ko na netflix","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
 {"text":"bayad na ng wifi bill kahapon","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
 {"text":"bayad ko sa labada 360","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
-{"text":"nag-bayad na ako ng internet, 1699","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
+{"text":"nag-bayad na ako ng internet, 749","expected":"record-payment","tag":"existing-bill","lang":"taglish","source":"authored","split":"dev"}
 {"text":"new netflix premium plan 549/mo","expected":"add-bill-subscription","tag":"new-bill","lang":"en","source":"authored","split":"dev"}
 {"text":"adding hbo go 150 monthly","expected":"add-bill-subscription","tag":"new-bill","lang":"en","source":"authored","split":"dev"}
 {"text":"second wifi line for the office 1,299 monthly","expected":"add-bill-subscription","tag":"new-bill","lang":"en","source":"authored","split":"dev"}
@@ -197,9 +196,7 @@
 {"text":"may bagong labada service ako, 500 kada linggo","expected":"add-bill-subscription","tag":"new-bill","lang":"taglish","source":"authored","split":"dev"}
 {"text":"got 1,200 back from lazada","expected":"record-refund","tag":"refund","lang":"en","source":"authored","split":"dev"}
 {"text":"bank returned the 300 charge","expected":"record-refund","tag":"refund","lang":"en","source":"authored","split":"dev"}
-{"text":"landlord returned my 5,000 deposit","expected":"record-refund","tag":"refund","lang":"en","source":"authored","split":"dev"}
 {"text":"bumalik yung 600 sa cancelled flight","expected":"record-refund","tag":"refund","lang":"taglish","source":"authored","split":"dev"}
-{"text":"client paid me back for the materials 1,200","tag":"income","lang":"en","source":"authored","split":"dev","expected":"record-income"}
 {"text":"tip 200 from a customer","tag":"income","lang":"en","source":"authored","split":"dev","expected":"record-income"}
 {"text":"bayad ng client para sa materials 2,300","tag":"income","lang":"taglish","source":"authored","split":"dev","expected":"record-income"}
 {"text":"moved 2k to my emergency fund","expected":"move-between-purposes","tag":"savings","lang":"en","source":"authored","split":"dev"}

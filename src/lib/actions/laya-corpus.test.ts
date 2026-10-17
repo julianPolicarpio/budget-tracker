@@ -42,6 +42,12 @@ describe('Laya corpus', () => {
 	it('only uses an expected id that its tag allows', () => {
 		for (const c of cases) expect(ALLOWED[c.tag]?.includes(c.expected), `${c.text} (${c.tag} -> ${c.expected})`).toBe(true);
 	});
+	it('only uses names the demo seed can resolve in existing-bill cases', () => {
+		const names = ['home wifi', 'wifi', 'internet', 'streaming', 'notion', 'laundry', 'labada'];
+		for (const c of cases.filter((c) => c.tag === 'existing-bill')) {
+			expect(names.some((n) => c.text.toLowerCase().includes(n)), c.text).toBe(true);
+		}
+	});
 	it('has at least 120 authored cases, 10 per tag and 30 Taglish', () => {
 		// Counted across splits: Task 8 may move half of these to the test split.
 		const authored = cases.filter((c) => c.source === 'authored');
