@@ -3,6 +3,7 @@ import { redirect } from '@sveltejs/kit';
 import { startScheduler } from '$lib/server/jobs';
 import {
 	AuthConfigError,
+	isPublicPath,
 	resolveAuthMode,
 	resolveSession,
 	renewSession,
@@ -27,31 +28,16 @@ try {
 }
 
 console.log(
-	authMode.kind === 'single-user'
-		? '[split] auth: single-user mode — every request is user 1 (GOOGLE_CLIENT_ID is not set)'
-		: `[split] auth: Google sign-in enabled (origin ${authMode.origin})`
+	authMode.kind === 'google'
+		? `[split] auth: Google sign-in enabled (origin ${authMode.origin})`
+		: authMode.kind === 'demo'
+			? '[split] auth: demo mode'
+			: '[split] auth: single-user mode — every request is user 1 (GOOGLE_CLIENT_ID is not set)'
 );
 
 // One process, one scheduler. Rollover and backup are idempotent and keyed by
 // date, so this is safe on every restart (Spec §3).
 startScheduler();
-
-/**
- * Requests that must work with no session at all: the sign-in page itself,
- * the OAuth round trip, and the health check nothing here has authenticated
- * to poll.
- */
-function isPublicPath(pathname: string): boolean {
-	return (
-		pathname === '/signin' ||
-		pathname === '/api/health' ||
-		// The demo mints its own tenant and its own session (§3.4). Requiring a
-		// session to reach it would be circular, and the whole point is that a
-		// reviewer gets in without signing up for anything.
-		pathname === '/demo' ||
-		pathname.startsWith('/auth/')
-	);
-}
 
 /**
  * The configured origin, if there is one.
@@ -119,7 +105,7 @@ export const handle: Handle = ({ event, resolve }) => {
 	// clearing rather than leaving the browser to keep sending it forever.
 	if (sessionId) event.cookies.delete(SESSION_COOKIE, { path: '/' });
 
-	if (!isPublicPath(event.url.pathname)) {
+	if (!isPublicPath(event.url.pathname, authMode.kind)) {
 		redirect(303, '/signin');
 	}
 

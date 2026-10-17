@@ -25,6 +25,8 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import { existsSync, realpathSync } from 'node:fs';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { sqlite, unsafeDb, schema } from './db';
 import type { Account } from './db/schema';
@@ -239,6 +241,7 @@ export function findOrCreateGoogleUser(
 
 export type AuthMode =
 	| { kind: 'single-user' }
+	| { kind: 'demo' }
 	| { kind: 'google'; clientId: string; clientSecret: string; origin: string };
 
 export class AuthConfigError extends Error {
@@ -254,6 +257,60 @@ function isLoopbackOrUnset(host: string | undefined): boolean {
 	return host === undefined || host === '' || LOOPBACK_HOSTS.has(host);
 }
 
+/** Resolve symlinks on the deepest part of the path that exists. */
+function realDir(p: string): string {
+	let dir = resolve(p);
+	const tail: string[] = [];
+	while (!existsSync(dir) && dirname(dir) !== dir) {
+		tail.unshift(basename(dir));
+		dir = dirname(dir);
+	}
+	return join(realpathSync(dir), ...tail);
+}
+
+/**
+ * The public demo: every visitor gets their own seeded tenant via /demo.
+ * Its one job is to be unable to reach the owner's money, so it refuses to
+ * start unless the database lives outside this checkout's data/ directory.
+ */
+function resolveDemoMode(env: NodeJS.ProcessEnv, cwd: string): AuthMode {
+	const refuse = (why: string) =>
+		new AuthConfigError(`\nRefusing to start the demo.\n\n  ${why}\n`);
+	if (env.GOOGLE_CLIENT_ID?.trim()) {
+		throw refuse('SPLIT_DEMO_MODE=1 cannot be combined with GOOGLE_CLIENT_ID.');
+	}
+	if (!isLoopbackOrUnset(env.HOST) || !env.HOST) {
+		throw refuse(
+			`HOST must be a loopback address; the tunnel is the only way in. Got "${env.HOST ?? ''}".`
+		);
+	}
+	const db = env.DATABASE_URL?.trim();
+	if (!db) throw refuse('DATABASE_URL must point at the demo database.');
+	const liveDataDir = realDir(join(cwd, 'data'));
+	const dbDir = realDir(dirname(resolve(cwd, db)));
+	if (dbDir === liveDataDir || dbDir.startsWith(liveDataDir + sep)) {
+		throw refuse(`DATABASE_URL (${db}) is inside ${liveDataDir}, where the real database lives.`);
+	}
+	return { kind: 'demo' };
+}
+
+/**
+ * Requests that must work with no session at all: the sign-in page itself,
+ * the OAuth round trip, and the health check nothing here has authenticated
+ * to poll. In demo mode there is no OAuth round trip, so /auth/* stays closed.
+ */
+export function isPublicPath(pathname: string, mode: AuthMode['kind']): boolean {
+	return (
+		pathname === '/signin' ||
+		pathname === '/api/health' ||
+		// The demo mints its own tenant and its own session (§3.4). Requiring a
+		// session to reach it would be circular, and the whole point is that a
+		// reviewer gets in without signing up for anything.
+		pathname === '/demo' ||
+		(mode !== 'demo' && pathname.startsWith('/auth/'))
+	);
+}
+
 /**
  * Decide how requests get attributed to a user, from environment alone.
  *
@@ -264,7 +321,11 @@ function isLoopbackOrUnset(host: string | undefined): boolean {
  * combination: a public-looking `HOST` with no sign-in, or a `GOOGLE_CLIENT_ID`
  * without its required partners.
  */
-export function resolveAuthMode(env: NodeJS.ProcessEnv = process.env): AuthMode {
+export function resolveAuthMode(
+	env: NodeJS.ProcessEnv = process.env,
+	cwd: string = process.cwd()
+): AuthMode {
+	if (env.SPLIT_DEMO_MODE === '1') return resolveDemoMode(env, cwd);
 	const clientId = env.GOOGLE_CLIENT_ID?.trim();
 
 	if (!clientId) {

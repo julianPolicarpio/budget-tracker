@@ -7,9 +7,9 @@
  */
 
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { applyMigrations } from '../../../scripts/apply-migrations.js';
 
 type Mod = {
@@ -256,5 +256,42 @@ describe('google-oauth: exchangeCodeForProfile', () => {
 		} finally {
 			fetchSpy.mockRestore();
 		}
+	});
+});
+
+describe('resolveAuthMode — demo mode', () => {
+	const dir = mkdtempSync(join(tmpdir(), 'split-demo-mode-'));
+	const repo = join(dir, 'repo');
+	mkdirSync(join(repo, 'data'), { recursive: true });
+	const demoDb = join(dir, 'demo', 'demo.db');
+	mkdirSync(dirname(demoDb), { recursive: true });
+
+	it('starts with loopback, no Google, and a DB outside the repo data dir', () => {
+		expect(m.auth.resolveAuthMode({ SPLIT_DEMO_MODE: '1', HOST: '127.0.0.1', DATABASE_URL: demoDb }, repo)).toEqual({ kind: 'demo' });
+	});
+	it('refuses alongside Google sign-in', () => {
+		expect(() => m.auth.resolveAuthMode({ SPLIT_DEMO_MODE: '1', HOST: '127.0.0.1', DATABASE_URL: demoDb, GOOGLE_CLIENT_ID: 'x' }, repo)).toThrow(m.auth.AuthConfigError);
+	});
+	it('refuses a non-loopback bind', () => {
+		expect(() => m.auth.resolveAuthMode({ SPLIT_DEMO_MODE: '1', HOST: '0.0.0.0', DATABASE_URL: demoDb }, repo)).toThrow(m.auth.AuthConfigError);
+	});
+	it('refuses with no DATABASE_URL', () => {
+		expect(() => m.auth.resolveAuthMode({ SPLIT_DEMO_MODE: '1', HOST: '127.0.0.1' }, repo)).toThrow(m.auth.AuthConfigError);
+	});
+	it('refuses the live database, directly or through a symlink', () => {
+		expect(() => m.auth.resolveAuthMode({ SPLIT_DEMO_MODE: '1', HOST: '127.0.0.1', DATABASE_URL: join(repo, 'data', 'split.db') }, repo)).toThrow(m.auth.AuthConfigError);
+		const link = join(dir, 'sneaky');
+		symlinkSync(join(repo, 'data'), link);
+		expect(() => m.auth.resolveAuthMode({ SPLIT_DEMO_MODE: '1', HOST: '127.0.0.1', DATABASE_URL: join(link, 'other.db') }, repo)).toThrow(m.auth.AuthConfigError);
+	});
+});
+
+describe('isPublicPath', () => {
+	it('keeps /auth/* public for Google and closes it in demo mode', () => {
+		expect(m.auth.isPublicPath('/auth/google', 'google')).toBe(true);
+		expect(m.auth.isPublicPath('/auth/google', 'demo')).toBe(false);
+		expect(m.auth.isPublicPath('/demo', 'demo')).toBe(true);
+		expect(m.auth.isPublicPath('/signin', 'demo')).toBe(true);
+		expect(m.auth.isPublicPath('/', 'demo')).toBe(false);
 	});
 });
