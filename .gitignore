@@ -27,3 +27,4 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
 data.seed-*
+eval/laya/runs/
