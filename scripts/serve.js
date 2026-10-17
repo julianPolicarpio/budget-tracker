@@ -84,7 +84,8 @@ console.log(
 // AFTER, because printing it first meant the log claimed a bind that never
 // happened, in exactly the situation where someone is reading the log
 // carefully to find out why nothing works.
-await import(join(root, 'build', 'index.js'));
+// The demo runs its own build copy so a live rebuild never swaps it mid-request.
+await import(join(root, process.env.SPLIT_BUILD_DIR ?? 'build', 'index.js'));
 
 console.log(
 	`[split] listening on ${host}:${process.env.PORT ?? 3000}${inContainer ? ' (in container)' : ''}`
