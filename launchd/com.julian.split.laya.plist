@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The optional local classifier behind the typing bar's "Continue". Loopback
+  only; it sees typed text and action labels, never budget data, and keeps no
+  state, so the live app and the demo can share it. Stopping it is always safe:
+  /api/intent falls back to plain choices.
+
+  Install: sed "s|__PROJECT__|$PWD|g; s|__HOME__|$HOME|g" launchd/com.julian.split.laya.plist \
+             > ~/Library/LaunchAgents/com.julian.split.laya.plist
+           launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.julian.split.laya.plist
+  Prefetch the model cache once first (about 1.6 GB):
+    cd laya-service && LAYA_CACHE=~/.cache/split-laya LAYA_ALLOW_DOWNLOAD=1 LAYA_PREFETCH_ONLY=1 node server.mjs
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.julian.split.laya</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/opt/homebrew/bin/node</string>
+		<string>__PROJECT__/laya-service/server.mjs</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>__PROJECT__/laya-service</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PORT</key>
+		<string>3010</string>
+		<key>HOST</key>
+		<string>127.0.0.1</string>
+		<key>LAYA_CACHE</key>
+		<string>__HOME__/.cache/split-laya</string>
+		<key>LAYA_ALLOW_DOWNLOAD</key>
+		<string>0</string>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>__PROJECT__/data/laya.log</string>
+	<key>StandardErrorPath</key>
+	<string>__PROJECT__/data/laya.err</string>
+</dict>
+</plist>
