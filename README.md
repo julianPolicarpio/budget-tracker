@@ -2,14 +2,15 @@
 
 **A budgeting app that refuses to show you your balance.**
 
+**Live demo: [split.jlndev.xyz](https://split.jlndev.xyz)** · no sign-up · a short guided tour shows you around
+
+<p align="center"><img src="docs/images/demo-landing.png" alt="Split landing page with the Try the demo button" width="760"></p>
+
 Every other budgeting app competes on live balances, automatic bank import and
 rich category breakdowns. Split ships none of them, on purpose, because the
 field evidence says each one measurably makes people spend _more_. What it shows
 instead is a single band — _spend roughly ₱450–570 today_ — and a box to type
 what you just bought.
-
-[Try the demo](https://split.jlndev.xyz) — the real app with ninety days of history in it, no email,
-deletes itself after a day.
 
 ```
                     ₱450 – ₱570
@@ -28,12 +29,62 @@ other app in this category competes on removing that step with bank import and
 automatic categorisation. The research says that step is the part that works,
 so Split keeps it.
 
-## Live demo
+## Try the demo
 
-Try it at **https://split.jlndev.xyz**. No sign-up. Every visitor gets a private
-demo tenant with 90 days of sample history, and it is deleted after 24 hours.
+1. Open **https://split.jlndev.xyz** and click **Try the demo**.
+2. You get your own private account with 90 days of sample history already in it.
+   Nobody else can see it, and it is deleted after 24 hours.
+3. A six-step tour shows you the daily range, how to log a purchase, the AI step
+   and the weekly review. You can skip it, or replay it from the banner at the top.
 
-The demo runs on the author's Mac, so it is down whenever the Mac sleeps.
+Things to try once you are in:
+
+- Type `jollibee 245`, then answer the quick question to save it.
+- Type `trip to tokyo in april` and tap **Continue**. Laya, a small AI model
+  running on the server, suggests which form you meant.
+- Open **Weekly review** to see the week as a whole.
+
+| The guided tour | Laya's suggestion (phone) |
+|---|---|
+| <img src="docs/images/demo-tour.png" alt="Tour step one highlighting the daily range" width="440"> | <img src="docs/images/demo-laya.png" alt="Typing trip to tokyo in april, then Laya suggests Add a trip" width="240"> |
+
+**What the demo leaves out.** To keep it short, the demo shows only Today and
+Weekly review. The other screens (accounts, big bills, subscriptions, trips,
+debt, wishlist, trends, settings) are in the full app and described under
+[The screens](#the-screens).
+
+**How the demo is kept apart from real data.**
+
+- It runs in its own Docker container, published only on the host's localhost
+  and reached through a Cloudflare Tunnel. Nothing from the host is mounted into it.
+- In demo mode the server refuses to start unless its database is empty or
+  marked as a demo database (`scripts/demo-guard.js`). The check runs before any
+  migration, so a wrong `DATABASE_URL` cannot open a real budget.
+- New demo accounts are limited to 5 per IP per hour and 200 at a time, and
+  expired ones are deleted every hour.
+- It runs on the author's Mac, so it is down whenever the Mac sleeps.
+
+## Laya: the one AI step
+
+When the text you type is not a purchase, you tap **Continue** and a small
+zero-shot model ([`@receptron/laya`](https://www.npmjs.com/package/@receptron/laya),
+pinned revision, run locally in `laya-service/`) suggests which form you meant.
+It only sees the typed text and the names of the actions, never budget data.
+If it is down or slower than 1.5 seconds, you get plain choices instead.
+
+It was measured before it was trusted, on 234 labelled entries (92 in Taglish):
+
+| | Result |
+|---|---|
+| Right action decided or offered as a choice | 170 / 234 (73%) |
+| Right action decided outright | 144 / 234 (62%) |
+| The model alone, on the entries the parser could not decide | 65 / 142 (46%) |
+| Forms that open on their own | only "Add a trip": 11 of 11 correct |
+
+Because the model's confidence turned out to be unreliable, every other answer
+stays a ranked choice, and nothing is saved until you submit the form. These
+numbers come from the set used to tune the settings, not a held-out test, and
+the full write-up is in [`eval/laya/results-2026-10-18.md`](eval/laya/results-2026-10-18.md).
 
 ---
 
@@ -199,13 +250,9 @@ txn selector** that carries `AND trip_id IS NULL` so no individual metric has to
 remember it, and `src/lib/allowance.ts`, where two nearly-identical functions sit
 side by side with comments explaining why unifying them is the bug.
 
-> **A note on the name.** The codebase still carries the working name `split` —
-> `data/split.db`, `SPLIT_ORIGIN`, the compose service, the schema. Every command
-> below is accurate as written. The identifiers are staying put deliberately
-> rather than pending: `split` also names the app's core mechanic — _split on
-> arrival_, split resolution, the ordered waterfall — so the code reads correctly
-> under either name, and a rename of the running system for cosmetic reasons is
-> exactly the kind of change this project's own guidelines argue against.
+> **A note on names.** The spec ([`split-combined-spec.md`](split-combined-spec.md))
+> and some older documents call the app _Longhand_, its working name. The product
+> is Split, and the code has always used `split`.
 
 ## The parts worth reading
 
@@ -242,7 +289,7 @@ and an orphaned reference treated as fatal.
 ## Check the claims
 
 ```bash
-npm test          # every rule above, plus the tenancy leak test
+npm test          # 744 tests: every rule above, the tenancy leak test, the demo guard
 npm run check     # svelte-check, zero errors
 ```
 
