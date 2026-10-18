@@ -106,12 +106,14 @@ describe('the landing page makes a checkable claim', () => {
 		expect(page).not.toContain(`href="/demo"`);
 	});
 
-	it('uses the accessible accent for the filled button, not the line accent', () => {
+	it('fills the demo button with ink on ground, never white text on an accent', () => {
 		const page = readFileSync(resolve('src/routes/signin/+page.svelte'), 'utf8');
-		const css = readFileSync(resolve('src/routes/layout.css'), 'utf8');
-		// White on --accent is 3.64:1 in dark and 4.41:1 in light; both fail.
-		expect(page).toContain('var(--accent-solid');
-		expect(css).toContain('--accent-solid');
+		const primary = page.match(/\.primary \{[^}]*\}/)?.[0] ?? '';
+		// Ink on ground is near-black on white (or the reverse), far above 4.5:1
+		// in both themes. White on --accent was 3.64:1 in dark and 4.41:1 in light.
+		expect(primary).toContain('background: var(--ink)');
+		expect(primary).toContain('color: var(--ground)');
+		expect(primary).not.toContain('--accent');
 	});
 });
 
