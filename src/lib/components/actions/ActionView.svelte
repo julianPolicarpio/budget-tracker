@@ -15,7 +15,9 @@
 	 * because Esc still closes the whole surface — same key, same copy, both
 	 * states.
 	 */
+	import { page } from '$app/state';
 	import { actionViewFor, placeholderTarget } from '$lib/actions/action-view';
+	import { isDemoHidden } from '$lib/nav/demo';
 	import type { ActionContext } from '$lib/actions/context';
 	import type { ActionDraft } from '$lib/actions/draft';
 	import RecordIncomeForm from './RecordIncomeForm.svelte';
@@ -118,7 +120,12 @@
 				{/if}
 			{:else if placeholder}
 				<p class="placeholder">
-					Not a quick form yet — use the <a href={placeholder.href}>{placeholder.label}</a> tab to
+					Not a quick form yet — use the
+					{#if page.data.demo === true && isDemoHidden(placeholder.href)}
+						{placeholder.label}
+					{:else}
+						<a href={placeholder.href}>{placeholder.label}</a>
+					{/if} tab to
 					{view.action.label.toLowerCase()}.
 				</p>
 			{/if}

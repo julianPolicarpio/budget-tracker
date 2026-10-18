@@ -31,6 +31,8 @@
 	import EntryResolution from './EntryResolution.svelte';
 	import ActionView from './actions/ActionView.svelte';
 	import { ACTION_PILLS } from '$lib/actions/catalogue';
+	import { demoVisibleActionIds } from '$lib/actions/action-view';
+	import { page } from '$app/state';
 	import type { ActionContext } from '$lib/actions/context';
 	import type { ActionDraft } from '$lib/actions/draft';
 
@@ -403,7 +405,7 @@
 							     swaps its content to that action (see the `actionId` branch
 							     above), so the bar and the action are one surface. Skipped
 							     in embedders with no onActionPill (tests, other tabs). -->
-							{#each ACTION_PILLS as p (p.id)}
+							{#each page.data.demo === true ? ACTION_PILLS.filter((p) => demoVisibleActionIds([p.id], true).length === 1) : ACTION_PILLS as p (p.id)}
 								<button
 									type="button"
 									class="sugg-pill sugg-pill--action"

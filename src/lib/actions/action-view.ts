@@ -19,6 +19,7 @@
 
 import type { CatalogueAction } from './catalogue';
 import { actionById } from './catalogue';
+import { isDemoHidden } from '$lib/nav/demo';
 
 export type SelectionResolution =
 	{ type: 'navigate'; target: string } | { type: 'form'; formId: string };
@@ -99,4 +100,21 @@ export function actionViewFor(actionId: string): ActionViewResolution | undefine
 	return isWiredForm(resolution.formId)
 		? { kind: 'form', action, formId: resolution.formId }
 		: { kind: 'placeholder', action };
+}
+
+/**
+ * The action ids the typing bar may offer in the public demo. Kept: inline
+ * forms (even if the form posts to a hidden route) and navigations to a screen
+ * the demo shows. Dropped: navigations to a hidden screen, and placeholders
+ * that can only point at one. Outside the demo the ids come back unchanged.
+ */
+export function demoVisibleActionIds(ids: readonly string[], demo: boolean): string[] {
+	if (!demo) return [...ids];
+	return ids.filter((id) => {
+		const view = actionViewFor(id);
+		if (!view) return false;
+		if (view.kind === 'form') return true;
+		if (view.kind === 'navigate') return !isDemoHidden(view.target);
+		return false;
+	});
 }

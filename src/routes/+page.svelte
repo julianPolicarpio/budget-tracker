@@ -19,7 +19,7 @@
 	import type { ParsedEntry, ParseContext } from '$lib/entry-parser';
 	import { formatMoney, parseMoney } from '$lib/money';
 	import { ACTION_PILLS } from '$lib/actions/catalogue';
-	import { actionViewFor } from '$lib/actions/action-view';
+	import { actionViewFor, demoVisibleActionIds } from '$lib/actions/action-view';
 	import { draftForAction, type ActionDraft } from '$lib/actions/draft';
 	import { resolveProtectedIntent } from '$lib/actions/intent';
 	import type { ActionData, PageData } from './$types';
@@ -29,6 +29,9 @@
 	const view = $derived(data.view);
 	// Public demo: no links to screens the demo hides.
 	const demo = $derived(data.demo === true);
+	const pills = $derived(
+		demo ? ACTION_PILLS.filter((p) => demoVisibleActionIds([p.id], true).length === 1) : ACTION_PILLS
+	);
 
 	// The router's context arrives once per load, refreshed automatically
 	// after every save (Spec §5.6-§5.7, task A4a's design). Only absent when
@@ -354,7 +357,10 @@
 		const local = resolveProtectedIntent(raw, parseContext, view.currency.minorUnits);
 		if (local.kind === 'spending' || local.kind === 'existing') return [];
 		const first = local.kind === 'action' ? [local.actionId] : [];
-		return [...new Set([...first, 'add-bill-subscription', 'transfer-money', 'add-debt'])].slice(0, 3);
+		return demoVisibleActionIds(
+			[...new Set([...first, 'add-bill-subscription', 'transfer-money', 'add-debt'])],
+			demo
+		).slice(0, 3);
 	}
 
 	async function continueTypedRequest(desktop: boolean) {
@@ -378,12 +384,20 @@
 			if (sequence !== intentSequence || entry.text.trim() !== raw) return;
 			if (result && typeof result === 'object') {
 				const answer = result as { kind?: unknown; actionId?: unknown; actionIds?: unknown };
-				if (answer.kind === 'action' && typeof answer.actionId === 'string' && actionViewFor(answer.actionId)) {
+				if (
+					answer.kind === 'action' &&
+					typeof answer.actionId === 'string' &&
+					actionViewFor(answer.actionId) &&
+					demoVisibleActionIds([answer.actionId], demo).length === 1
+				) {
 					openIntentAction(answer.actionId, desktop, raw);
 					return;
 				}
 				if (answer.kind === 'choices' && Array.isArray(answer.actionIds)) {
-					const ids = answer.actionIds.filter((id): id is string => typeof id === 'string' && Boolean(actionViewFor(id))).slice(0, 3);
+					const ids = demoVisibleActionIds(
+						answer.actionIds.filter((id): id is string => typeof id === 'string' && Boolean(actionViewFor(id))),
+						demo
+					).slice(0, 3);
 					const choices = { source: raw, ids };
 					if (desktop) desktopIntentChoices = choices;
 					else mobileIntentChoices = choices;
@@ -939,7 +953,7 @@
 				-->
 					{#if mobileEntry.text.trim() === ''}
 						<div class="sugg-row">
-							{#each ACTION_PILLS as p (p.id)}
+							{#each pills as p (p.id)}
 								<button
 									type="button"
 									class="sugg-pill sugg-pill--action"

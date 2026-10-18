@@ -24,6 +24,18 @@ describe('demoRedirect', () => {
 		expect(demoRedirect('GET', '/settings/export', 'demo')).toBe('/');
 	});
 
+	it('matches the decoded, lowercased path', () => {
+		expect(demoRedirect('GET', '/%74rips', 'demo')).toBe('/');
+		expect(demoRedirect('GET', '/sett%69ngs', 'demo')).toBe('/');
+		expect(demoRedirect('GET', '/TRIPS', 'demo')).toBe('/');
+		expect(demoRedirect('GET', '/Trips/3', 'demo')).toBe('/');
+	});
+
+	it('treats a malformed escape as hidden', () => {
+		expect(demoRedirect('GET', '/%E0%A4%A', 'demo')).toBe('/');
+		expect(demoRedirect('GET', '/%E0%A4%A', 'google')).toBeNull();
+	});
+
 	it('lets POSTs through so the typing bar still works', () => {
 		expect(demoRedirect('POST', '/trips', 'demo')).toBeNull();
 		expect(demoRedirect('POST', '/accounts', 'demo')).toBeNull();

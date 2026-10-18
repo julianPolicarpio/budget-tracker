@@ -16,10 +16,12 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { isDemoHidden } from '../nav/demo';
 import { CATALOGUE, actionById } from '../actions/catalogue';
 import {
 	WIRED_FORM_IDS,
 	actionViewFor,
+	demoVisibleActionIds,
 	isWiredForm,
 	placeholderTarget,
 	resolveSelection
@@ -147,5 +149,40 @@ describe('actionViewFor', () => {
 			const view = actionViewFor(action.id);
 			if (view?.kind === 'form') expect(isWiredForm(view.formId)).toBe(true);
 		}
+	});
+});
+
+describe('demoVisibleActionIds', () => {
+	const allIds = CATALOGUE.map((a) => a.id);
+
+	it('changes nothing outside demo', () => {
+		expect(demoVisibleActionIds(allIds, false)).toEqual(allIds);
+	});
+
+	it('drops dedicated actions that navigate to a hidden route', () => {
+		const kept = demoVisibleActionIds(allIds, true);
+		for (const action of CATALOGUE) {
+			if (action.behaviour.kind === 'dedicated' && isDemoHidden(action.route)) {
+				expect(kept).not.toContain(action.id);
+			}
+		}
+	});
+
+	it('keeps inline forms, even ones that post to a hidden route', () => {
+		const kept = demoVisibleActionIds(allIds, true);
+		expect(kept).toContain('add-trip');
+		expect(kept).toContain('transfer-money');
+	});
+
+	it('leaves only inline forms or visible-route navigations', () => {
+		for (const id of demoVisibleActionIds(allIds, true)) {
+			const view = actionViewFor(id)!;
+			expect(['form', 'navigate']).toContain(view.kind);
+			if (view.kind === 'navigate') expect(isDemoHidden(view.target)).toBe(false);
+		}
+	});
+
+	it('drops unknown ids', () => {
+		expect(demoVisibleActionIds(['nope'], true)).toEqual([]);
 	});
 });
