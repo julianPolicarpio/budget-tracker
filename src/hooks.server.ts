@@ -1,5 +1,6 @@
 import type { Handle } from '@sveltejs/kit';
 import { error, redirect } from '@sveltejs/kit';
+import { canonicalRedirect } from '$lib/server/canonical';
 import { startScheduler } from '$lib/server/jobs';
 import {
 	AuthConfigError,
@@ -63,22 +64,23 @@ export const handle: Handle = ({ event, resolve }) => {
 	 * make sure a navigation never LANDS on the wrong host: send GETs to the
 	 * canonical origin, and every form on the page that follows is submitted
 	 * from the right one.
+	 *
+	 * The comparison uses the HOST HEADER, not event.url: with ORIGIN set,
+	 * adapter-node rewrites event.url to the canonical origin on every request,
+	 * so comparing against it can never differ and the check silently does
+	 * nothing, which is exactly what the first version of this did.
+	 *
+	 * /api/health is exempt (see canonical.ts): the Docker HEALTHCHECK probes it
+	 * on 127.0.0.1 and would otherwise be redirected to the public host.
 	 */
-	if (CANONICAL_ORIGIN && event.request.method === 'GET') {
-		const want = new URL(CANONICAL_ORIGIN);
-
-		/*
-		 * The HOST HEADER, not event.url. With ORIGIN set, adapter-node rewrites
-		 * event.url to the canonical origin on every request, so comparing
-		 * against it can never differ and the check silently does nothing —
-		 * which is exactly what the first version of this did.
-		 */
-		const actual = event.request.headers.get('host');
-		if (actual && actual !== want.host) {
-			const to = new URL(event.url.pathname + event.url.search, CANONICAL_ORIGIN);
-			redirect(307, to.toString());
-		}
-	}
+	const canonical = canonicalRedirect(
+		event.request.method,
+		event.url.pathname,
+		event.url.search,
+		event.request.headers.get('host'),
+		CANONICAL_ORIGIN
+	);
+	if (canonical) redirect(307, canonical);
 
 	event.locals.authKind = authMode.kind;
 

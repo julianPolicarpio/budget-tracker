@@ -52,8 +52,8 @@ USER node
 EXPOSE 3000
 
 # HOST=0.0.0.0 is correct *inside* a container — the port publish on the host
-# is what governs reach, and compose binds it to loopback. scripts/serve.js
-# refuses that same value on a bare host, where it would mean every interface.
+# is what governs reach, and compose binds it to loopback. auth.ts refuses
+# that same value on a bare host, where it would mean every interface.
 HEALTHCHECK --interval=30s --timeout=4s --start-period=10s --retries=3 \
 	CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
