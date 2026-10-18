@@ -11,6 +11,8 @@ node_modules
 /.svelte-kit
 /build
 /build.pre-pills.bak/
+/build.pre-deploy.bak/
+/build-demo/
 
 # OS
 .DS_Store

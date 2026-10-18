@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The public demo, served through the Cloudflare tunnel at split.jlndev.xyz.
+
+  Separate from com.julian.split in every way that matters: its own build copy
+  (build-demo/, so a live rebuild never swaps it mid-request), its own port, and
+  its own database outside this checkout. SPLIT_DEMO_MODE=1 makes serve.js and
+  auth.ts refuse to start unless that database is empty or already marked as a
+  demo database, so a misconfigured DATABASE_URL cannot reach real data.
+  The demo database must not be named split.db and must not sit next to a
+  backups/ folder holding split-*.db files.
+
+  Install: sed "s|__PROJECT__|$PWD|g; s|__HOME__|$HOME|g" launchd/com.julian.split.demo.plist \
+             > ~/Library/LaunchAgents/com.julian.split.demo.plist
+           launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.julian.split.demo.plist
+  Refresh the build: rm -rf build-demo && cp -R build build-demo, then
+           launchctl kickstart -k gui/$(id -u)/com.julian.split.demo
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.julian.split.demo</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/opt/homebrew/bin/node</string>
+		<string>__PROJECT__/scripts/serve.js</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>__PROJECT__</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>SPLIT_DEMO_MODE</key>
+		<string>1</string>
+		<key>SPLIT_BUILD_DIR</key>
+		<string>build-demo</string>
+		<key>HOST</key>
+		<string>127.0.0.1</string>
+		<key>PORT</key>
+		<string>3020</string>
+		<key>ORIGIN</key>
+		<string>https://split.jlndev.xyz</string>
+		<key>DATABASE_URL</key>
+		<string>__HOME__/projects/personal/deploy/split/demo.db</string>
+		<key>LAYA_URL</key>
+		<string>http://127.0.0.1:3010</string>
+		<key>NODE_ENV</key>
+		<string>production</string>
+		<key>TZ</key>
+		<string>Asia/Manila</string>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>__HOME__/projects/personal/deploy/split/serve.log</string>
+	<key>StandardErrorPath</key>
+	<string>__HOME__/projects/personal/deploy/split/serve.err</string>
+</dict>
+</plist>
