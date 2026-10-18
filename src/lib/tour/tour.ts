@@ -235,6 +235,31 @@ function scrollParent(el: Element): HTMLElement | null {
 	return null;
 }
 
+/** Driver draws its cut-out from the element's rect at draw time. The entry
+ * form grows as the visitor types, so redraw whenever its size changes (and on
+ * every keystroke for entry steps), once per animation frame. */
+function followSize(el: Element, typing: boolean) {
+	let queued = false;
+	const refresh = () => {
+		if (queued) return;
+		queued = true;
+		requestAnimationFrame(() => {
+			queued = false;
+			driverObj?.refresh();
+		});
+	};
+	const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(refresh);
+	observer?.observe(el);
+	const input = typing ? el.querySelector<HTMLInputElement>('input[name="text"]') : null;
+	input?.addEventListener('input', refresh);
+	const previous = undock;
+	undock = () => {
+		previous?.();
+		observer?.disconnect();
+		input?.removeEventListener('input', refresh);
+	};
+}
+
 /** While an entry step is up, keep driver's cut-out on the element as the
  * page or the overlay's own scroll area moves (one refresh per frame). */
 function followScrolling(form: Element) {
@@ -358,6 +383,7 @@ function draw(step: TourStep, el: Element | null, fallback: boolean) {
 		else if (el) clearEntryField(el);
 		if (el) followScrolling(el);
 	}
+	if (el) followSize(el, !fallback && focusesEntryField(step));
 }
 
 function addSkip(popover: { wrapper: HTMLElement; footer: HTMLElement }) {
