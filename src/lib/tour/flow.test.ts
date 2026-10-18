@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TOUR_STEPS } from './steps';
-import { advance, focusesEntryField, parseStoredStep, restoreAction, stepShowsOn } from './flow';
+import { advance, focusesEntryField, parseStoredStep, popoverSide, restoreAction, stepShowsOn } from './flow';
 
 const LOG = 1;
 const ASK = 2;
@@ -110,5 +110,14 @@ describe('restoreAction', () => {
 describe('focusesEntryField', () => {
 	it('is true only for the two action steps that target the entry', () => {
 		expect(TOUR_STEPS.map(focusesEntryField)).toEqual([false, true, true, false, false, false]);
+	});
+});
+
+describe('popoverSide', () => {
+	it('places the popover above the form on typing steps only', () => {
+		expect(popoverSide(TOUR_STEPS[1])).toEqual({ side: 'top', align: 'start' });
+		expect(popoverSide(TOUR_STEPS[2])).toEqual({ side: 'top', align: 'start' });
+		expect(popoverSide(TOUR_STEPS[0])).toEqual({});
+		expect(popoverSide(TOUR_STEPS[3])).toEqual({});
 	});
 });

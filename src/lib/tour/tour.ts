@@ -10,7 +10,7 @@
  *   - `split:tour-show` { detail: { target } }   the tour tells a page which
  *     anchor it is about to point at (desktop uses this to open the entry bar)
  */
-import { advance, focusesEntryField, parseStoredStep, restoreAction, stepShowsOn, type TourSignal } from './flow';
+import { advance, focusesEntryField, parseStoredStep, popoverSide, restoreAction, stepShowsOn, type TourSignal } from './flow';
 import { TOUR_STEPS, type TourStep } from './steps';
 
 const STEP_KEY = 'split_tour_step';
@@ -244,6 +244,7 @@ function draw(step: TourStep, el: Element | null, fallback: boolean) {
 		popover: {
 			title: step.title,
 			description: step.body,
+			...(el ? popoverSide(step) : {}),
 			showButtons: hasNext ? ['next'] : [],
 			nextBtnText: last ? 'Done' : 'Next',
 			onNextClick: () => apply({ kind: 'next', fallback: fallbackShown }),

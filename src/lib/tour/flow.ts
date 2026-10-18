@@ -74,3 +74,8 @@ export function restoreAction(input: {
 export function focusesEntryField(step: TourStep): boolean {
 	return step.kind === 'action' && step.target === 'entry';
 }
+
+/** Typing steps put the popover above the form so it never covers the field. */
+export function popoverSide(step: TourStep): { side: 'top'; align: 'start' } | Record<string, never> {
+	return focusesEntryField(step) ? { side: 'top', align: 'start' } : {};
+}

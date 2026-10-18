@@ -54,7 +54,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
 		kind: 'info',
 		target: 'intent-result',
 		page: '/',
-		title: 'Laya picked a form',
+		title: "Laya's suggestion",
 		body: 'A small AI model running on this server (Laya) suggests which form you meant. Nothing is saved until you submit.'
 	},
 	{
