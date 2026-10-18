@@ -14,3 +14,9 @@ build
 .vscode
 *.md
 !README.md
+
+# Any database or data snapshot, at any depth (e.g. data.seed-*/split.db).
+data*
+**/*.db
+**/*.db-wal
+**/*.db-shm

@@ -53,7 +53,9 @@ export async function classifyWithLaya(text: string, options: readonly LayaOptio
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ text, options }),
-			signal: AbortSignal.timeout(TIMEOUT_MS)
+			signal: AbortSignal.timeout(TIMEOUT_MS),
+			// A redirect would resend the typed text to whatever host it names.
+			redirect: 'error'
 		});
 		if (!response.ok) return null;
 		return validChoice(await response.json(), ids);

@@ -102,4 +102,17 @@ describe('classifyWithLaya', () => {
 		expect(await classifyWithLaya('some text', OPTIONS)).toBeNull();
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
+
+	it('never follows a redirect, so typed text cannot be resent to another host', async () => {
+		process.env.LAYA_URL = 'http://127.0.0.1:3010';
+		const fetchMock = vi.fn(async () =>
+			new Response(JSON.stringify({ id: 'record-income', probability: 0.9, margin: 0.5 }), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		await classifyWithLaya('some text', OPTIONS);
+		expect((fetchMock.mock.calls as unknown[][])[0][1]).toMatchObject({ redirect: 'error' });
+	});
 });
