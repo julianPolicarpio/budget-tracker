@@ -27,6 +27,8 @@
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	const view = $derived(data.view);
+	// Public demo: no links to screens the demo hides.
+	const demo = $derived(data.demo === true);
 
 	// The router's context arrives once per load, refreshed automatically
 	// after every save (Spec §5.6-§5.7, task A4a's design). Only absent when
@@ -483,7 +485,7 @@
 		<div class="setup">
 			<p class="legend">Not set up</p>
 			<p class="setup-lede">Five questions, and Split can show you a number.</p>
-			<a class="setup-go" href="/setup">Set up Split</a>
+			{#if !demo}<a class="setup-go" href="/setup">Set up Split</a>{/if}
 		</div>
 	</main>
 {:else}
@@ -563,7 +565,7 @@
 			{:else}
 				<div class="hero">
 					<p class="no-period">No open period.</p>
-					<a class="setup-go" href="/setup">Finish setting up</a>
+					{#if !demo}<a class="setup-go" href="/setup">Finish setting up</a>{/if}
 				</div>
 			{/if}
 		</header>
@@ -575,7 +577,7 @@
 			break for no reason (Spec §4.6). Each one disappears the moment it is
 			satisfied, so the idle screen really is the hero and nothing else.
 		-->
-		{#if view.reviewDue || view.missed.length > 0 || view.pendingMoves || !view.dayClosed || view.entries.length === 0}
+		{#if view.reviewDue || view.missed.length > 0 || (view.pendingMoves && !demo) || !view.dayClosed || view.entries.length === 0}
 			<section class="prompts">
 				{#if view.reviewDue}
 					<a class="prompt" href="/review">
@@ -651,7 +653,7 @@
 						<span aria-hidden="true">✓</span> Logged. Nothing spent today.
 					</p>
 				{/if}
-				{#if view.pendingMoves}
+				{#if view.pendingMoves && !demo}
 					<a class="prompt" href="/accounts">
 						{view.pendingMoves.count === 1
 							? `1 transfer not yet made — ${view.pendingMoves.firstLabel}`
@@ -705,7 +707,7 @@
 			amount, because the question is "do I still want this", and quoting
 			the price invites haggling with yourself instead of answering it.
 		-->
-		{#if view.subscriptionDue}
+		{#if view.subscriptionDue && !demo}
 			<!-- A `div`, not a `p`: HTML forbids nesting a `<form>` inside `<p>`. -->
 			<div class="horizon">
 				<a class="sub-due" href="/subscriptions">

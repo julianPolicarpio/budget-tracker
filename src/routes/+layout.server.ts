@@ -12,5 +12,8 @@ import { buildActionContext } from '$lib/actions/context';
 import type { LayoutServerLoad } from './$types';
 
 export const load: LayoutServerLoad = ({ locals }) => {
-	return { actionContext: buildActionContext(locals.userId) };
+	return {
+		actionContext: buildActionContext(locals.userId),
+		demo: locals.authKind === 'demo'
+	};
 };

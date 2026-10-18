@@ -1,6 +1,7 @@
 import type { Handle } from '@sveltejs/kit';
 import { error, redirect } from '@sveltejs/kit';
 import { canonicalRedirect } from '$lib/server/canonical';
+import { demoRedirect } from '$lib/server/demo-routes';
 import { startScheduler } from '$lib/server/jobs';
 import {
 	AuthConfigError,
@@ -96,6 +97,10 @@ export const handle: Handle = ({ event, resolve }) => {
 
 	if (session) {
 		event.locals.userId = session.userId;
+		// Demo shows Today and Weekly review only. After the session check so a
+		// signed-out visitor still lands on /signin first.
+		const demoTo = demoRedirect(event.request.method, event.url.pathname, authMode.kind);
+		if (demoTo) redirect(303, demoTo);
 		// Sliding renewal: touching the app pushes the 30-day expiry back out,
 		// on both the row and the cookie that carries it.
 		renewSession(sessionId!);

@@ -33,3 +33,10 @@ export const DESTINATIONS: readonly Destination[] = [
 	{ href: '/trends', label: 'Trends' },
 	{ href: '/settings', label: 'Settings' }
 ];
+
+/** The only destinations a public-demo visitor sees besides Today. */
+export const DEMO_HREFS: readonly string[] = ['/review'];
+
+export function destinationsFor(demo: boolean): readonly Destination[] {
+	return demo ? DESTINATIONS.filter((d) => DEMO_HREFS.includes(d.href)) : DESTINATIONS;
+}

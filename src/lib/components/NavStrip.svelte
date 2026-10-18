@@ -20,13 +20,13 @@
 	 * count. Owner's call, 2026-10-01.
 	 */
 	import { page } from '$app/state';
-	import { DESTINATIONS } from '$lib/nav/destinations';
+	import { destinationsFor } from '$lib/nav/destinations';
 
 	const current = $derived(page.url.pathname);
 </script>
 
 <nav class="nav" aria-label="Screens">
-	{#each DESTINATIONS as d (d.href)}
+	{#each destinationsFor(page.data.demo === true) as d (d.href)}
 		<a
 			href={d.href}
 			class:on={current === d.href}
