@@ -448,3 +448,81 @@ body {
 	white-space: nowrap;
 	border: 0;
 }
+
+/*
+ * The demo's guided tour (driver.js). Ink on ground, no blue, and no motion
+ * when the visitor asked for none. Only exists on screen during the demo.
+ */
+.driver-popover.split-tour {
+	background: var(--ground);
+	color: var(--ink);
+	border: 1px solid var(--hairline-strong);
+	border-radius: 0.75rem;
+	box-shadow: none;
+	font-family: var(--font-ui);
+	max-width: 20rem;
+	padding: 1rem;
+}
+
+.split-tour .driver-popover-title {
+	font-size: 1rem;
+	font-weight: 600;
+	color: var(--ink);
+}
+
+.split-tour .driver-popover-description {
+	font-size: 0.875rem;
+	color: var(--ink-secondary);
+}
+
+.split-tour .driver-popover-arrow {
+	display: none;
+}
+
+.split-tour .driver-popover-footer-btn {
+	background: var(--ink);
+	color: var(--ground);
+	border: 1px solid var(--ink);
+	border-radius: 999px;
+	padding: 0.4rem 1rem;
+	min-height: var(--touch, 2.75rem);
+	font-size: 0.8125rem;
+	text-shadow: none;
+}
+
+.split-tour .driver-popover-footer-btn:hover,
+.split-tour .driver-popover-footer-btn:focus-visible {
+	background: var(--ink-secondary);
+	outline: 2px solid var(--ink);
+	outline-offset: 2px;
+}
+
+.split-tour-skip {
+	display: block;
+	margin: 0.75rem 0 0 auto;
+	padding: 0.25rem 0;
+	border: 0;
+	background: none;
+	color: var(--ink-muted);
+	font: inherit;
+	font-size: 0.8125rem;
+	text-decoration: underline;
+	cursor: pointer;
+}
+
+.split-tour-skip:hover,
+.split-tour-skip:focus-visible {
+	color: var(--ink);
+}
+
+.split-tour-skip:focus-visible {
+	outline: 2px solid var(--ink);
+	outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.driver-fade .driver-overlay,
+	.driver-fade .driver-popover {
+		animation: none;
+	}
+}

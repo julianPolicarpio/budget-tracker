@@ -206,7 +206,7 @@
 {/if}
 
 {#if intentChoices && intentChoices.source === entry.text.trim() && onChooseAction}
-	<div class="intent-options" role="group" aria-label="Choose an action">
+	<div class="intent-options" data-tour="intent-result" role="group" aria-label="Choose an action">
 		<p>Choose the form you meant:</p>
 		{#each intentChoices.ids as id (id)}
 			{@const action = actionById(id)}

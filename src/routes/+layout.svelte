@@ -2,8 +2,9 @@
 	import './layout.css';
 	import { onNavigate } from '$app/navigation';
 	import favicon from '$lib/assets/favicon.svg';
+	import DemoBanner from '$lib/components/DemoBanner.svelte';
 
-	let { children } = $props();
+	let { children, data } = $props();
 
 	/*
 	 * Navigation shows continuity, not arrival (DESIGN.md, Motion).
@@ -42,4 +43,5 @@
 </script>
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
+{#if data.demo === true}<DemoBanner />{/if}
 {@render children()}

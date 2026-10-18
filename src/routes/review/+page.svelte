@@ -84,7 +84,7 @@
 		<header class="masthead">
 			<div>
 				<p class="eyebrow">Weekly review</p>
-				<h1>
+				<h1 data-tour={data.demo === true ? 'review' : undefined}>
 					{data.week.label}
 					<span class="range">
 						{dayLabel(data.week.startsOn, { day: 'numeric', month: 'short' })} –

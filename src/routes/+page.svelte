@@ -33,6 +33,12 @@
 		demo ? ACTION_PILLS.filter((p) => demoVisibleActionIds([p.id], true).length === 1) : ACTION_PILLS
 	);
 
+	/** Tells the demo's guided tour something real happened. Inert outside demo. */
+	function tourSignal(type: 'logged' | 'intent') {
+		if (!demo || typeof window === 'undefined') return;
+		window.dispatchEvent(new CustomEvent('split:tour', { detail: { type } }));
+	}
+
 	// The router's context arrives once per load, refreshed automatically
 	// after every save (Spec §5.6-§5.7, task A4a's design). Only absent when
 	// there is no view to attach a log form to at all.
@@ -178,6 +184,11 @@
 		toast = describeEntry(s);
 		clearTimeout(toastTimer);
 		toastTimer = setTimeout(() => (toast = null), 2400);
+		tourSignal('logged');
+	}
+
+	function onMobileEntrySaved() {
+		tourSignal('logged');
 	}
 
 	async function submitMobileEntry() {
@@ -245,6 +256,24 @@
 
 		window.addEventListener('keydown', onKeydown);
 
+		// Desktop has no visible entry field until the overlay opens, so the
+		// demo's tour asks for it when a step points at the entry.
+		function onTourShow(event: Event) {
+			const detail = (event as CustomEvent<{ target?: string }>).detail;
+			if (detail?.target === 'entry' && window.matchMedia(DESKTOP).matches && !overlayOpen) {
+				openLogOverlay();
+			}
+			// The overlay is modal; the Weekly review link sits behind it.
+			if (detail?.target === 'nav-review' && overlayOpen) {
+				intentSequence++;
+				actionId = undefined;
+				desktopActionDraft = undefined;
+				desktopIntentChoices = null;
+				overlayOpen = false;
+			}
+		}
+		if (demo) window.addEventListener('split:tour-show', onTourShow);
+
 		// The offline outbox (Spec §6, task A5). Three of its triggers live
 		// here: "app open" (this call, right away), "online" (the listener
 		// below), and telling a controlling service worker which user is
@@ -269,6 +298,7 @@
 		return () => {
 			mq.removeEventListener('change', onChange);
 			window.removeEventListener('keydown', onKeydown);
+			window.removeEventListener('split:tour-show', onTourShow);
 			window.removeEventListener('online', flushOutbox);
 			navigator.serviceWorker?.removeEventListener('controllerchange', tellServiceWorker);
 			clearTimeout(toastTimer);
@@ -391,6 +421,7 @@
 					demoVisibleActionIds([answer.actionId], demo).length === 1
 				) {
 					openIntentAction(answer.actionId, desktop, raw);
+					tourSignal('intent');
 					return;
 				}
 				if (answer.kind === 'choices' && Array.isArray(answer.actionIds)) {
@@ -401,6 +432,7 @@
 					const choices = { source: raw, ids };
 					if (desktop) desktopIntentChoices = choices;
 					else mobileIntentChoices = choices;
+					tourSignal('intent');
 					return;
 				}
 			}
@@ -417,6 +449,7 @@
 		const choices = { source: raw, ids: fallbackIntentChoices(raw) };
 		if (desktop) desktopIntentChoices = choices;
 		else mobileIntentChoices = choices;
+		tourSignal('intent');
 	}
 
 	/** Amounts in the trip's own currency, at the trip's own scale. */
@@ -536,7 +569,7 @@
 					See tripDailyFigure() in $lib/allowance.ts for why the boundary
 					condition flips the meaning.
 				-->
-				<div class="hero">
+				<div class="hero" data-tour={demo ? 'range' : undefined}>
 					<p class="sr-only">
 						Spend about {local(view.trip.figureLocal)} today, day {view.trip.dayOfTrip} of {view
 							.trip.tripDays}.
@@ -564,7 +597,7 @@
 					</p>
 				</div>
 			{:else if view.band}
-				<div class="hero">
+				<div class="hero" data-tour={demo ? 'range' : undefined}>
 					<p class="sr-only">
 						Spend around {money(view.band.low)} to {money(view.band.high)} today.
 					</p>
@@ -901,6 +934,7 @@
 			{:else}
 				<form
 					class="log"
+					data-tour={demo ? 'entry' : undefined}
 					method="POST"
 					action="?/logEntry"
 					bind:this={mobileFormEl}
@@ -908,7 +942,7 @@
 						mobileEntry,
 						() => mobileResolved,
 						data.userId,
-						undefined,
+						onMobileEntrySaved,
 						refreshQueuedCount
 					)}
 				>

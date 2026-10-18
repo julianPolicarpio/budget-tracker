@@ -29,6 +29,7 @@
 	{#each destinationsFor(page.data.demo === true) as d (d.href)}
 		<a
 			href={d.href}
+			data-tour={d.href === '/review' && page.data.demo === true ? 'nav-review' : undefined}
 			class:on={current === d.href}
 			aria-current={current === d.href ? 'page' : undefined}
 		>

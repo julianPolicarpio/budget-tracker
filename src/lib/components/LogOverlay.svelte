@@ -360,6 +360,7 @@
 		{:else}
 			<form
 				bind:this={formEl}
+				data-tour="entry"
 				method="POST"
 				action="?/logEntry"
 				use:enhance={offlineLogSubmit(entry, () => resolved, userId, onEntrySaved, onQueueChanged)}
