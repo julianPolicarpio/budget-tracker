@@ -90,8 +90,13 @@ export async function startTour(options: { restart?: boolean } = {}): Promise<vo
 	if (active) return;
 
 	if (!driverFactory) {
-		const [mod] = await Promise.all([import('driver.js'), import('driver.js/dist/driver.css')]);
-		driverFactory = mod.driver as unknown as (config: object) => DriverInstance;
+		try {
+			const [mod] = await Promise.all([import('driver.js'), import('driver.js/dist/driver.css')]);
+			driverFactory = mod.driver as unknown as (config: object) => DriverInstance;
+		} catch {
+			// Offline or blocked chunk: the tour simply does not start.
+			return;
+		}
 	}
 	if (stale() || active) return;
 
@@ -308,7 +313,9 @@ function dockEntry(form: Element) {
 	// The layout shifts after the input event (the resolution line re-renders).
 	const onInput = () => requestAnimationFrame(keepClear);
 	input.addEventListener('input', onInput);
+	const previous = undock;
 	undock = () => {
+		previous?.();
 		input.removeEventListener('input', keepClear);
 		input.removeEventListener('input', onInput);
 	};
