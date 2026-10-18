@@ -15,6 +15,8 @@ export const GET: RequestHandler = () => {
 		sqlite.prepare('SELECT 1').get();
 		return json({ ok: true });
 	} catch (err) {
-		return json({ ok: false, error: (err as Error).message }, { status: 503 });
+		// The caller is unauthenticated: log the reason here, never send it.
+		console.error(`[split] health check failed: ${(err as Error).message}`);
+		return json({ ok: false }, { status: 503 });
 	}
 };
