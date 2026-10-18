@@ -235,6 +235,31 @@ function scrollParent(el: Element): HTMLElement | null {
 	return null;
 }
 
+/** While an entry step is up, keep driver's cut-out on the element as the
+ * page or the overlay's own scroll area moves (one refresh per frame). */
+function followScrolling(form: Element) {
+	let queued = false;
+	const refresh = () => {
+		if (queued) return;
+		queued = true;
+		requestAnimationFrame(() => {
+			queued = false;
+			driverObj?.refresh();
+		});
+	};
+	const parent = scrollParent(form);
+	parent?.addEventListener('scroll', refresh, { passive: true });
+	window.addEventListener('scroll', refresh, { passive: true });
+	window.addEventListener('resize', refresh);
+	const previous = undock;
+	undock = () => {
+		previous?.();
+		parent?.removeEventListener('scroll', refresh);
+		window.removeEventListener('scroll', refresh);
+		window.removeEventListener('resize', refresh);
+	};
+}
+
 /** Phone: the popover is pinned to the top by CSS. Keep the input below it,
  * now and whenever typing grows the form and shifts the layout. */
 function dockEntry(form: Element) {
@@ -249,8 +274,8 @@ function dockEntry(form: Element) {
 		);
 		if (delta === 0) return;
 		const parent = scrollParent(form);
-		if (parent) parent.scrollBy({ top: delta, behavior: 'auto' });
-		else window.scrollBy({ top: delta, behavior: 'auto' });
+		if (parent) parent.scrollBy({ top: delta, behavior: 'instant' });
+		else window.scrollBy({ top: delta, behavior: 'instant' });
 		driverObj?.refresh();
 	};
 	keepClear();
@@ -278,8 +303,8 @@ function clearEntryField(form: Element) {
 		popover.getBoundingClientRect().height
 	);
 	const parent = scrollParent(form);
-	if (parent) parent.scrollBy({ top: delta, behavior: 'auto' });
-	else window.scrollBy({ top: delta, behavior: 'auto' });
+	if (parent) parent.scrollBy({ top: delta, behavior: 'instant' });
+	else window.scrollBy({ top: delta, behavior: 'instant' });
 	driverObj?.refresh();
 }
 
@@ -331,6 +356,7 @@ function draw(step: TourStep, el: Element | null, fallback: boolean) {
 		focusEntryField();
 		if (el && docked) dockEntry(el);
 		else if (el) clearEntryField(el);
+		if (el) followScrolling(el);
 	}
 }
 
