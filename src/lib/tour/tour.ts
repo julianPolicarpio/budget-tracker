@@ -251,6 +251,7 @@ function dockEntry(form: Element) {
 		const parent = scrollParent(form);
 		if (parent) parent.scrollBy({ top: delta, behavior: 'auto' });
 		else window.scrollBy({ top: delta, behavior: 'auto' });
+		driverObj?.refresh();
 	};
 	keepClear();
 	input.addEventListener('input', keepClear);
