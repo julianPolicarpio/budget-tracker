@@ -2,7 +2,7 @@ export type Tag = 'plain-spending' | 'new-bill' | 'existing-bill' | 'transfer' |
 export interface EvalCase { text: string; expected: string; tag: Tag; lang: 'en' | 'taglish'; source: 'authored' | 'owner'; split: 'dev' | 'test'; }
 export type Route = 'parser' | 'model' | 'fallback';
 export interface EvalRow extends EvalCase {
-	route: Route; // parser decided / model answered / model unavailable or timed out (> 750 ms)
+	route: Route; // parser decided / model answered / model unavailable or timed out (> TIMEOUT_MS)
 	decided: string | null; // parser's id, or the model's id (incl. 'unclear'); null on fallback
 	probability: number | null;
 	margin: number | null;
@@ -12,7 +12,8 @@ export interface EvalRow extends EvalCase {
 }
 export interface Thresholds { probability: number; margin: number; allowed: string[]; }
 
-export const TIMEOUT_MS = 750;
+// Must equal TIMEOUT_MS in server/laya-client.ts (kept pure: no server import; a test pins the match).
+export const TIMEOUT_MS = 1500;
 export const NEVER_AUTO_OPEN: ReadonlySet<string> = new Set(['record-payment', 'add-debt', 'update-balance', 'transfer-money', 'unclear', 'log-spending', 'set-budget']);
 export const AUTO_OPEN_CANDIDATES = ['add-bill-subscription', 'record-refund', 'create-planned-expense', 'add-trip', 'record-income', 'save-for-later'] as const;
 const MONEY_MOVING = new Set(['log-spending', 'record-income', 'transfer-money', 'record-payment', 'record-refund', 'fund-planned-expense', 'move-between-purposes', 'add-debt', 'update-balance']);

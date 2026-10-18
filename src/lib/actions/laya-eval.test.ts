@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CATALOGUE } from './catalogue';
-import { AUTO_OPEN_CANDIDATES, NEVER_AUTO_OPEN, chooseThresholds, isDangerousOpen, summarise, type EvalRow } from './laya-eval';
+import { TIMEOUT_MS as SERVER_TIMEOUT_MS } from '../server/laya-client';
+import { TIMEOUT_MS as EVAL_TIMEOUT_MS, AUTO_OPEN_CANDIDATES, NEVER_AUTO_OPEN, chooseThresholds, isDangerousOpen, summarise, type EvalRow } from './laya-eval';
 
 function row(p: Partial<EvalRow>): EvalRow {
 	return {
@@ -30,11 +31,12 @@ describe('summarise', () => {
 		const s = summarise([
 			row({}),
 			row({ decided: 'add-debt', choices: ['add-bill-subscription', 'add-debt'] }),
-			row({ lang: 'taglish', route: 'fallback', decided: null, latencyMs: 900, choices: ['save-for-later'] })
+			row({ lang: 'taglish', route: 'fallback', decided: null, latencyMs: 2000, choices: ['save-for-later'] }),
+			row({ latencyMs: 1200 })
 		]);
-		expect(s.overall).toEqual({ n: 3, top1: 1, offered: 2 });
+		expect(s.overall).toEqual({ n: 4, top1: 2, offered: 3 });
 		expect(s.byLang.taglish).toEqual({ n: 1, top1: 0, offered: 0 });
-		expect(s.modelOnly).toEqual({ n: 2, top1: 1 });
+		expect(s.modelOnly).toEqual({ n: 3, top1: 2 });
 		expect(s.latency.overTimeout).toBe(1);
 	});
 });
@@ -92,5 +94,12 @@ describe('auto-open lists', () => {
 
 	it('no auto-open candidate is in NEVER_AUTO_OPEN', () => {
 		expect(AUTO_OPEN_CANDIDATES.filter((id) => NEVER_AUTO_OPEN.has(id))).toEqual([]);
+	});
+});
+
+describe('Laya timeout', () => {
+	it('is the same 1.5 s in the server client and the eval runner', () => {
+		expect(EVAL_TIMEOUT_MS).toBe(1500);
+		expect(SERVER_TIMEOUT_MS).toBe(EVAL_TIMEOUT_MS);
 	});
 });

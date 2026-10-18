@@ -10,7 +10,8 @@ export interface LayaChoice {
 	margin: number;
 }
 
-const TIMEOUT_MS = 750;
+// Must stay below the page's 3.5 s abort (continueTypedRequest) and equal to TIMEOUT_MS in actions/laya-eval.ts.
+export const TIMEOUT_MS = 1500;
 const INTERNAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', 'laya', 'host.docker.internal']);
 
 function configuredUrl(): URL | null {
