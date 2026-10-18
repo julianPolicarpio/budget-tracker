@@ -163,6 +163,41 @@ async function loadClassifier() {
 	};
 }
 
+const WARM_TEXT = 'keep warm';
+const WARM_OPTIONS = [...ACTION_IDS]
+	.filter((id) => id !== 'log-spending')
+	.map((id) => ({ id, description: id }));
+
+/**
+ * Periodically classifies a fixed, harmless string so the model's memory stays resident
+ * (an idle model gets compressed or swapped, and the first real request then misses the
+ * app's timeout). Calls never overlap, failures are logged without any text, and the
+ * returned function stops it. `intervalMs <= 0` disables it.
+ */
+export function startKeepWarm({
+	classify,
+	intervalMs,
+	setIntervalFn = setInterval,
+	clearIntervalFn = clearInterval,
+	logger = console
+}) {
+	if (!(intervalMs > 0)) return () => {};
+	let running = false;
+	const timer = setIntervalFn(async () => {
+		if (running) return;
+		running = true;
+		try {
+			await classify(WARM_TEXT, WARM_OPTIONS);
+		} catch {
+			logger.error('Laya keep-warm call failed.');
+		} finally {
+			running = false;
+		}
+	}, intervalMs);
+	if (typeof timer?.unref === 'function') timer.unref();
+	return () => clearIntervalFn(timer);
+}
+
 if (import.meta.main) {
 	if (process.env.LAYA_PREFETCH_ONLY === '1') {
 		loadClassifier()
@@ -186,6 +221,10 @@ if (import.meta.main) {
 				classify = loadedClassifier;
 				status = 'ready';
 				console.log('Laya model is ready.');
+				startKeepWarm({
+					classify: loadedClassifier,
+					intervalMs: Number(process.env.LAYA_KEEPWARM_MS ?? 120_000)
+				});
 			})
 			.catch(() => {
 				status = 'unavailable';

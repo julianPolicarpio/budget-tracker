@@ -6,6 +6,10 @@
   state, so the live app and the demo can share it. Stopping it is always safe:
   /api/intent falls back to plain choices.
 
+  Keep-warm: once the model is ready it classifies a fixed dummy string every
+  LAYA_KEEPWARM_MS milliseconds (default 120000) so macOS does not compress or
+  swap the idle model. 0 disables it. Not set below; the default applies.
+
   Install: sed "s|__PROJECT__|$PWD|g; s|__HOME__|$HOME|g" launchd/com.julian.split.laya.plist \
              > ~/Library/LaunchAgents/com.julian.split.laya.plist
            launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.julian.split.laya.plist

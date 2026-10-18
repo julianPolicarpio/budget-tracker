@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import test from 'node:test';
 
-import { createLayaService, listenHost } from './server.mjs';
+import { createLayaService, listenHost, startKeepWarm } from './server.mjs';
 
 const OPTIONS = [
 	{ id: 'record-income', description: 'Record money received, such as salary or a refund.' },
@@ -176,4 +176,125 @@ test('rejects an option that is not a Split action, naming Split', async () => {
 			assert.equal(result.body.error, 'Option id is not a Split action.');
 		}
 	);
+});
+
+function fakeTimers() {
+	const state = { callback: null, ms: null, cleared: false, unrefCalled: false };
+	const handle = { unref() { state.unrefCalled = true; } };
+	state.setIntervalFn = (callback, ms) => {
+		state.callback = callback;
+		state.ms = ms;
+		return handle;
+	};
+	state.clearIntervalFn = (given) => {
+		if (given === handle) state.cleared = true;
+	};
+	return state;
+}
+
+const silentLogger = () => {
+	const lines = [];
+	return { lines, error: (...args) => lines.push(args.join(' ')), log: (...args) => lines.push(args.join(' ')) };
+};
+
+test('keep-warm calls classify with 16 options that exclude log-spending', async () => {
+	const timers = fakeTimers();
+	const calls = [];
+	startKeepWarm({
+		classify: async (text, options) => {
+			calls.push({ text, options });
+			return { id: 'unclear', probability: 1, margin: 1 };
+		},
+		intervalMs: 1000,
+		setIntervalFn: timers.setIntervalFn,
+		clearIntervalFn: timers.clearIntervalFn,
+		logger: silentLogger()
+	});
+	assert.equal(timers.ms, 1000);
+	assert.equal(timers.unrefCalled, true);
+	await timers.callback();
+	assert.equal(calls.length, 1);
+	assert.equal(calls[0].text, 'keep warm');
+	assert.equal(calls[0].options.length, 16);
+	const ids = calls[0].options.map((option) => option.id);
+	assert.equal(ids.includes('log-spending'), false);
+	assert.deepEqual(new Set(ids), new Set(ALL_IDS.filter((id) => id !== 'log-spending')));
+	for (const option of calls[0].options) assert.equal(option.description, option.id);
+});
+
+test('keep-warm skips a tick while the previous call is pending', async () => {
+	const timers = fakeTimers();
+	let calls = 0;
+	let release;
+	startKeepWarm({
+		classify: () => {
+			calls += 1;
+			return new Promise((resolve) => {
+				release = resolve;
+			});
+		},
+		intervalMs: 1000,
+		setIntervalFn: timers.setIntervalFn,
+		clearIntervalFn: timers.clearIntervalFn,
+		logger: silentLogger()
+	});
+	const first = timers.callback();
+	await timers.callback();
+	assert.equal(calls, 1);
+	release({ id: 'unclear', probability: 1, margin: 1 });
+	await first;
+	const second = timers.callback();
+	assert.equal(calls, 2);
+	release({ id: 'unclear', probability: 1, margin: 1 });
+	await second;
+});
+
+test('keep-warm catches and logs a rejecting classify without the text', async () => {
+	const timers = fakeTimers();
+	const logger = silentLogger();
+	startKeepWarm({
+		classify: async () => {
+			throw new Error('boom keep warm');
+		},
+		intervalMs: 1000,
+		setIntervalFn: timers.setIntervalFn,
+		clearIntervalFn: timers.clearIntervalFn,
+		logger
+	});
+	await timers.callback();
+	assert.equal(logger.lines.length, 1);
+	assert.equal(logger.lines[0].includes('boom'), false);
+	assert.equal(logger.lines[0].includes('keep warm'), false);
+	await timers.callback();
+	assert.equal(logger.lines.length, 2);
+});
+
+test('keep-warm is disabled when intervalMs is 0 or less', () => {
+	const timers = fakeTimers();
+	for (const intervalMs of [0, -5]) {
+		const stop = startKeepWarm({
+			classify: async () => ({}),
+			intervalMs,
+			setIntervalFn: timers.setIntervalFn,
+			clearIntervalFn: timers.clearIntervalFn,
+			logger: silentLogger()
+		});
+		assert.equal(typeof stop, 'function');
+		stop();
+	}
+	assert.equal(timers.callback, null);
+});
+
+test('keep-warm stop clears the timer', () => {
+	const timers = fakeTimers();
+	const stop = startKeepWarm({
+		classify: async () => ({}),
+		intervalMs: 1000,
+		setIntervalFn: timers.setIntervalFn,
+		clearIntervalFn: timers.clearIntervalFn,
+		logger: silentLogger()
+	});
+	assert.equal(timers.cleared, false);
+	stop();
+	assert.equal(timers.cleared, true);
 });
