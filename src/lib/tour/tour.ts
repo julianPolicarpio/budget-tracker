@@ -10,7 +10,7 @@
  *   - `split:tour-show` { detail: { target } }   the tour tells a page which
  *     anchor it is about to point at (desktop uses this to open the entry bar)
  */
-import { advance, parseStoredStep, restoreAction, stepShowsOn, type TourSignal } from './flow';
+import { advance, focusesEntryField, parseStoredStep, restoreAction, stepShowsOn, type TourSignal } from './flow';
 import { TOUR_STEPS, type TourStep } from './steps';
 
 const STEP_KEY = 'split_tour_step';
@@ -185,11 +185,39 @@ function showCurrent() {
 	const look = () => {
 		if (token !== showToken) return;
 		const el = findVisible(step.target);
-		if (el) return draw(step, el, false);
+		if (el) return void settleThenDraw(step, el);
 		if (Date.now() - started >= ANCHOR_WAIT_MS) return draw(step, null, true);
 		pollTimer = setTimeout(look, POLL_MS);
 	};
 	look();
+}
+
+/** Scrolls the anchor to the middle of whatever scrolls it (the log overlay has
+ * its own scroll area, which driver.js does not know about), waits for the
+ * scroll to settle, then draws. */
+async function settleThenDraw(step: TourStep, el: Element) {
+	const token = showToken;
+	const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+	el.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' });
+	await new Promise<void>((r) => requestAnimationFrame(() => r()));
+	if (!reduced) {
+		let last = el.getBoundingClientRect().top;
+		let still = 0;
+		for (let i = 0; i < 40 && still < 3; i++) {
+			await new Promise<void>((r) => requestAnimationFrame(() => r()));
+			const top = el.getBoundingClientRect().top;
+			still = Math.abs(top - last) < 0.5 ? still + 1 : 0;
+			last = top;
+		}
+	}
+	if (token !== showToken || !active) return;
+	draw(step, el, false);
+}
+
+function focusEntryField() {
+	const form = findVisible('entry');
+	const input = form?.querySelector<HTMLInputElement>('input[name="text"]');
+	input?.focus({ preventScroll: true });
 }
 
 function draw(step: TourStep, el: Element | null, fallback: boolean) {
@@ -226,6 +254,9 @@ function draw(step: TourStep, el: Element | null, fallback: boolean) {
 			}) => addSkip(popover)
 		}
 	});
+	// Typing steps: the visitor should be able to type straight away. Skip tour
+	// stays reachable with Tab.
+	if (!fallback && focusesEntryField(step)) focusEntryField();
 }
 
 function addSkip(popover: { wrapper: HTMLElement; footer: HTMLElement }) {

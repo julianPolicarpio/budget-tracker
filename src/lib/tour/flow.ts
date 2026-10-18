@@ -69,3 +69,8 @@ export function restoreAction(input: {
 	if (stepShowsOn(step, input.pathname)) return 'start';
 	return input.storedStep === input.steps.length - 1 ? 'finish' : 'none';
 }
+
+/** Steps that ask the visitor to type: the entry field should have focus. */
+export function focusesEntryField(step: TourStep): boolean {
+	return step.kind === 'action' && step.target === 'entry';
+}

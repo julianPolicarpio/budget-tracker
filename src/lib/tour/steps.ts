@@ -38,7 +38,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
 		page: '/',
 		advanceOn: 'logged',
 		title: 'Log a purchase',
-		body: 'Type a purchase, like jollibee 245, and press Enter. That is all it takes.'
+		body: 'Type a purchase, like jollibee 245. Then choose Planned or Unplanned to save it.'
 	},
 	{
 		id: 'ask',

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TOUR_STEPS } from './steps';
-import { advance, parseStoredStep, restoreAction, stepShowsOn } from './flow';
+import { advance, focusesEntryField, parseStoredStep, restoreAction, stepShowsOn } from './flow';
 
 const LOG = 1;
 const ASK = 2;
@@ -104,5 +104,11 @@ describe('restoreAction', () => {
 		expect(restoreAction({ ...base, demo: false, pathname: '/', storedStep: 0 })).toBe('none');
 		expect(restoreAction({ ...base, done: true, pathname: '/', storedStep: 0 })).toBe('none');
 		expect(restoreAction({ ...base, demo: false, pathname: '/', storedStep: LAST })).toBe('none');
+	});
+});
+
+describe('focusesEntryField', () => {
+	it('is true only for the two action steps that target the entry', () => {
+		expect(TOUR_STEPS.map(focusesEntryField)).toEqual([false, true, true, false, false, false]);
 	});
 });
