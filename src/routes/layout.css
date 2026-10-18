@@ -526,3 +526,20 @@ body {
 		animation: none;
 	}
 }
+
+/* Phones: on typing steps the popover is pinned to the top so it never covers
+   the field, however the form grows. !important beats driver.js inline styles. */
+.driver-popover.split-tour-docked {
+	position: fixed !important;
+	top: 12px !important;
+	left: 12px !important;
+	right: 12px !important;
+	bottom: auto !important;
+	width: auto !important;
+	max-width: none !important;
+	inset-inline: 12px !important;
+}
+
+.split-tour-docked .driver-popover-arrow {
+	display: none !important;
+}

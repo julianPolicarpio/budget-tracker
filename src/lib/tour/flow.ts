@@ -101,3 +101,24 @@ export function overlapsVertically(
 ): boolean {
 	return a.top < b.bottom && b.top < a.bottom;
 }
+
+export const DOCK_BREAKPOINT = 768;
+export const DOCK_GAP = 12;
+
+/** Narrow screens dock the popover to the top on typing steps. */
+export function shouldDock(step: TourStep, viewportWidth: number): boolean {
+	return focusesEntryField(step) && viewportWidth < DOCK_BREAKPOINT;
+}
+
+/**
+ * Scroll needed (negative = scroll up) to bring an input that sits under a
+ * docked popover back to `gap` below it; 0 when it is already clear.
+ */
+export function dockedScrollDelta(
+	inputTop: number,
+	popoverBottom: number,
+	gap: number = DOCK_GAP
+): number {
+	const delta = Math.round(inputTop - (popoverBottom + gap));
+	return delta < 0 ? delta : 0;
+}

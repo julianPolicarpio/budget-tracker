@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TOUR_STEPS } from './steps';
-import { advance, entryScrollTarget, focusesEntryField, overlapsVertically, parseStoredStep, popoverSide, restoreAction, stepShowsOn } from './flow';
+import { advance, dockedScrollDelta, entryScrollTarget, focusesEntryField, overlapsVertically, parseStoredStep, popoverSide, shouldDock, restoreAction, stepShowsOn } from './flow';
 
 const LOG = 1;
 const ASK = 2;
@@ -144,5 +144,24 @@ describe('overlapsVertically', () => {
 
 	it('is false when the popover ends above the input', () => {
 		expect(overlapsVertically({ top: 100, bottom: 330 }, { top: 373, bottom: 420 })).toBe(false);
+	});
+});
+
+describe('shouldDock', () => {
+	it('docks typing steps below 768px only', () => {
+		expect(shouldDock(TOUR_STEPS[1], 391)).toBe(true);
+		expect(shouldDock(TOUR_STEPS[2], 767)).toBe(true);
+		expect(shouldDock(TOUR_STEPS[1], 768)).toBe(false);
+		expect(shouldDock(TOUR_STEPS[0], 391)).toBe(false);
+	});
+});
+
+describe('dockedScrollDelta', () => {
+	it('is zero while the input is clear of the docked popover', () => {
+		expect(dockedScrollDelta(300, 150)).toBe(0);
+	});
+
+	it('scrolls up (negative) when the input slid under the popover', () => {
+		expect(dockedScrollDelta(120, 150)).toBe(-42);
 	});
 });

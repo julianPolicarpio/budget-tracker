@@ -10,7 +10,7 @@
  *   - `split:tour-show` { detail: { target } }   the tour tells a page which
  *     anchor it is about to point at (desktop uses this to open the entry bar)
  */
-import { advance, entryScrollTarget, focusesEntryField, overlapsVertically, parseStoredStep, popoverSide, restoreAction, stepShowsOn, type TourSignal } from './flow';
+import { advance, dockedScrollDelta, entryScrollTarget, focusesEntryField, overlapsVertically, parseStoredStep, popoverSide, restoreAction, shouldDock, stepShowsOn, type TourSignal } from './flow';
 import { TOUR_STEPS, type TourStep } from './steps';
 
 const STEP_KEY = 'split_tour_step';
@@ -27,6 +27,7 @@ let driverObj: DriverInstance | null = null;
 let driverFactory: ((config: object) => DriverInstance) | null = null;
 let showToken = 0;
 let startToken = 0;
+let undock: (() => void) | null = null;
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
 let fallbackShown = false;
 let currentPath = '/';
@@ -172,6 +173,8 @@ function findVisible(target: string): Element | null {
 }
 
 function closePopover() {
+	undock?.();
+	undock = null;
 	try {
 		driverObj?.destroy();
 	} catch {
@@ -232,6 +235,34 @@ function scrollParent(el: Element): HTMLElement | null {
 	return null;
 }
 
+/** Phone: the popover is pinned to the top by CSS. Keep the input below it,
+ * now and whenever typing grows the form and shifts the layout. */
+function dockEntry(form: Element) {
+	const input = form.querySelector<HTMLInputElement>('input[name="text"]');
+	if (!input) return;
+	const keepClear = () => {
+		const popover = document.querySelector<HTMLElement>('.driver-popover');
+		if (!popover) return;
+		const delta = dockedScrollDelta(
+			input.getBoundingClientRect().top,
+			popover.getBoundingClientRect().bottom
+		);
+		if (delta === 0) return;
+		const parent = scrollParent(form);
+		if (parent) parent.scrollBy({ top: delta, behavior: 'auto' });
+		else window.scrollBy({ top: delta, behavior: 'auto' });
+	};
+	keepClear();
+	input.addEventListener('input', keepClear);
+	// The layout shifts after the input event (the resolution line re-renders).
+	const onInput = () => requestAnimationFrame(keepClear);
+	input.addEventListener('input', onInput);
+	undock = () => {
+		input.removeEventListener('input', keepClear);
+		input.removeEventListener('input', onInput);
+	};
+}
+
 /** On a short screen the popover can land on the text field. When it does,
  * scroll the form down until the popover fits above it, then redraw. */
 function clearEntryField(form: Element) {
@@ -264,6 +295,7 @@ function draw(step: TourStep, el: Element | null, fallback: boolean) {
 	const last = index === TOUR_STEPS.length - 1;
 	const hasNext = step.kind === 'info' || fallback;
 	const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+	const docked = el !== null && shouldDock(step, window.innerWidth);
 
 	driverObj = driverFactory({
 		animate: !reduced,
@@ -274,7 +306,7 @@ function draw(step: TourStep, el: Element | null, fallback: boolean) {
 		overlayOpacity: 0.6,
 		stagePadding: 6,
 		stageRadius: 8,
-		popoverClass: 'split-tour'
+		popoverClass: docked ? 'split-tour split-tour-docked' : 'split-tour'
 	});
 	driverObj.highlight({
 		...(el ? { element: el } : {}),
@@ -296,7 +328,8 @@ function draw(step: TourStep, el: Element | null, fallback: boolean) {
 	// stays reachable with Tab.
 	if (!fallback && focusesEntryField(step)) {
 		focusEntryField();
-		if (el) clearEntryField(el);
+		if (el && docked) dockEntry(el);
+		else if (el) clearEntryField(el);
 	}
 }
 
