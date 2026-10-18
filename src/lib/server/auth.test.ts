@@ -177,6 +177,14 @@ describe('findOrCreateGoogleUser', () => {
 });
 
 describe('resolveAuthMode — the single-user escape hatch', () => {
+	it('does not let isContainer widen non-demo modes', () => {
+		expect(() => m.auth.resolveAuthMode({ HOST: '0.0.0.0' }, process.cwd(), () => true)).toThrow(
+			m.auth.AuthConfigError
+		);
+		expect(m.auth.resolveAuthMode({ HOST: '127.0.0.1' }, process.cwd(), () => true)).toEqual({
+			kind: 'single-user'
+		});
+	});
 	it('allows single-user mode on a loopback host, or when HOST is unset', () => {
 		expect(m.auth.resolveAuthMode({ HOST: '127.0.0.1' })).toEqual({ kind: 'single-user' });
 		expect(m.auth.resolveAuthMode({ HOST: 'localhost' })).toEqual({ kind: 'single-user' });
@@ -280,10 +288,15 @@ describe('resolveAuthMode — demo mode', () => {
 	});
 
 	/** Refused with an AuthConfigError whose message names the reason. */
-	function expectRefused(e: NodeJS.ProcessEnv, cwd: string, substring: string) {
+	function expectRefused(
+		e: NodeJS.ProcessEnv,
+		cwd: string,
+		substring: string,
+		isContainer: () => boolean = () => false
+	) {
 		let caught: unknown;
 		try {
-			m.auth.resolveAuthMode(e, cwd);
+			m.auth.resolveAuthMode(e, cwd, isContainer);
 		} catch (err) {
 			caught = err;
 		}
@@ -314,6 +327,29 @@ describe('resolveAuthMode — demo mode', () => {
 		for (const host of [undefined, '', 'localhost', '::1', '[::1]', '0.0.0.0']) {
 			expectRefused(env({ HOST: host }), repo, 'HOST must be exactly 127.0.0.1');
 		}
+	});
+	it('accepts 0.0.0.0 only when the container check says so', () => {
+		expect(m.auth.resolveAuthMode(env({ HOST: '0.0.0.0' }), repo, () => true)).toEqual({
+			kind: 'demo'
+		});
+		expectRefused(env({ HOST: '0.0.0.0' }), repo, 'only inside a container', () => false);
+		expectRefused(env({ HOST: '0.0.0.0' }), repo, 'only inside a container');
+	});
+	it('still refuses other hosts inside a container, and 127.0.0.1 works either way', () => {
+		for (const host of [undefined, '', 'localhost', '::', '::1', '192.168.1.5']) {
+			expectRefused(env({ HOST: host }), repo, 'HOST must be', () => true);
+			expectRefused(env({ HOST: host }), repo, 'HOST must be', () => false);
+		}
+		expect(m.auth.resolveAuthMode(env({}), repo, () => true)).toEqual({ kind: 'demo' });
+		expect(m.auth.resolveAuthMode(env({}), repo, () => false)).toEqual({ kind: 'demo' });
+	});
+	it('ignores SPLIT_IN_CONTAINER: only the injected file check opens 0.0.0.0', () => {
+		expectRefused(
+			env({ HOST: '0.0.0.0', SPLIT_IN_CONTAINER: '1' }),
+			repo,
+			'only inside a container',
+			() => false
+		);
 	});
 	it('refuses with no DATABASE_URL', () => {
 		expectRefused(env({ DATABASE_URL: undefined }), repo, 'DATABASE_URL must point');

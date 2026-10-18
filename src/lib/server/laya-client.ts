@@ -11,7 +11,7 @@ export interface LayaChoice {
 }
 
 const TIMEOUT_MS = 750;
-const INTERNAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', 'laya']);
+const INTERNAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', 'laya', 'host.docker.internal']);
 
 function configuredUrl(): URL | null {
 	const raw = process.env.LAYA_URL?.trim();

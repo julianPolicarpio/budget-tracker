@@ -25,6 +25,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { sqlite, unsafeDb, schema } from './db';
@@ -271,15 +272,25 @@ function isLoopbackOrUnset(host: string | undefined): boolean {
  * wrong cwd they look in the wrong place, and the contents check refuses the
  * real database anyway.
  */
-function resolveDemoMode(env: NodeJS.ProcessEnv, cwd: string): AuthMode {
+function resolveDemoMode(
+	env: NodeJS.ProcessEnv,
+	cwd: string,
+	isContainer: () => boolean
+): AuthMode {
 	const refuse = (why: string) => new AuthConfigError(`\nRefusing to start the demo: ${why}\n`);
 	if (env.GOOGLE_CLIENT_ID?.trim()) {
 		throw refuse('SPLIT_DEMO_MODE=1 cannot be combined with GOOGLE_CLIENT_ID.');
 	}
 	// Exactly the tunnel's target. 'localhost' and '::1' are loopback too, but
 	// the tunnel points at 127.0.0.1, and anything else is a config mistake.
-	if (env.HOST !== '127.0.0.1') {
-		throw refuse(`HOST must be exactly 127.0.0.1; the tunnel is the only way in. Got "${env.HOST ?? ''}".`);
+	// 0.0.0.0 is allowed only inside a container, where the port publish
+	// (127.0.0.1 only) governs reach. On a bare host it means every interface.
+	// Detected by the file alone, never an env var that could be set on the Mac.
+	if (env.HOST !== '127.0.0.1' && !(env.HOST === '0.0.0.0' && isContainer())) {
+		throw refuse(
+			`HOST must be exactly 127.0.0.1 (0.0.0.0 is allowed only inside a container); ` +
+				`the tunnel is the only way in. Got "${env.HOST ?? ''}".`
+		);
 	}
 	const db = env.DATABASE_URL?.trim();
 	if (!db) throw refuse('DATABASE_URL must point at the demo database.');
@@ -320,7 +331,8 @@ export function isPublicPath(pathname: string, mode: AuthMode['kind']): boolean 
  */
 export function resolveAuthMode(
 	env: NodeJS.ProcessEnv = process.env,
-	cwd: string = process.cwd()
+	cwd: string = process.cwd(),
+	isContainer: () => boolean = () => existsSync('/.dockerenv')
 ): AuthMode {
 	let demo: boolean;
 	try {
@@ -328,7 +340,7 @@ export function resolveAuthMode(
 	} catch (err) {
 		throw new AuthConfigError(`\n${err instanceof Error ? err.message : String(err)}\n`);
 	}
-	if (demo) return resolveDemoMode(env, cwd);
+	if (demo) return resolveDemoMode(env, cwd, isContainer);
 	const clientId = env.GOOGLE_CLIENT_ID?.trim();
 
 	if (!clientId) {

@@ -17,8 +17,9 @@ import { clientIp, demoLimiter } from '$lib/server/demo-limit';
 
 export const POST: RequestHandler = ({ cookies, url, request, locals, getClientAddress }) => {
 	// CF-Connecting-IP is trusted only in demo mode, where the tunnel is the only
-	// way in: auth.ts pins HOST to 127.0.0.1 in demo mode, so nothing can reach
-	// the server without passing through Cloudflare, which sets the header.
+	// way in: HOST is pinned to 127.0.0.1 on a bare host, or the container's port
+	// is published on 127.0.0.1 only, so nothing can reach the server without
+	// passing through Cloudflare, which sets the header.
 	const ip = clientIp({
 		authKind: locals.authKind,
 		cfHeader: request.headers.get('cf-connecting-ip'),

@@ -82,4 +82,24 @@ describe('classifyWithLaya', () => {
 		expect(await classifyWithLaya('some text', make(17))).toBeNull();
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
+
+	it('reaches the host sidecar by host.docker.internal but refuses an external host', async () => {
+		const fetchMock = vi.fn(async () =>
+			new Response(JSON.stringify({ id: 'record-income', probability: 0.9, margin: 0.5 }), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+		);
+		vi.stubGlobal('fetch', fetchMock);
+
+		process.env.LAYA_URL = 'http://host.docker.internal:3010';
+		expect(await classifyWithLaya('some text', OPTIONS)).not.toBeNull();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(String((fetchMock.mock.calls as unknown[][])[0][0])).toContain('host.docker.internal:3010');
+
+		fetchMock.mockClear();
+		process.env.LAYA_URL = 'http://example.com:3010';
+		expect(await classifyWithLaya('some text', OPTIONS)).toBeNull();
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
 });
