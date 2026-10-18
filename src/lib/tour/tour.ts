@@ -10,7 +10,7 @@
  *   - `split:tour-show` { detail: { target } }   the tour tells a page which
  *     anchor it is about to point at (desktop uses this to open the entry bar)
  */
-import { advance, focusesEntryField, parseStoredStep, popoverSide, restoreAction, stepShowsOn, type TourSignal } from './flow';
+import { advance, entryScrollTarget, focusesEntryField, overlapsVertically, parseStoredStep, popoverSide, restoreAction, stepShowsOn, type TourSignal } from './flow';
 import { TOUR_STEPS, type TourStep } from './steps';
 
 const STEP_KEY = 'split_tour_step';
@@ -19,7 +19,7 @@ const DONE_KEY = 'split_tour_done';
 const ANCHOR_WAIT_MS = 1500;
 const POLL_MS = 100;
 
-type DriverInstance = { highlight: (step: object) => void; destroy: () => void };
+type DriverInstance = { highlight: (step: object) => void; refresh: () => void; destroy: () => void };
 
 let active = false;
 let index = 0;
@@ -224,6 +224,33 @@ async function settleThenDraw(step: TourStep, el: Element) {
 	draw(step, el, false);
 }
 
+function scrollParent(el: Element): HTMLElement | null {
+	for (let p = el.parentElement; p; p = p.parentElement) {
+		const y = getComputedStyle(p).overflowY;
+		if ((y === 'auto' || y === 'scroll') && p.scrollHeight > p.clientHeight) return p;
+	}
+	return null;
+}
+
+/** On a short screen the popover can land on the text field. When it does,
+ * scroll the form down until the popover fits above it, then redraw. */
+function clearEntryField(form: Element) {
+	const input = form.querySelector<HTMLInputElement>('input[name="text"]');
+	const popover = document.querySelector<HTMLElement>('.driver-popover');
+	if (!input || !popover) return;
+	const covers = () =>
+		overlapsVertically(popover.getBoundingClientRect(), input.getBoundingClientRect());
+	if (!covers()) return;
+	const delta = entryScrollTarget(
+		form.getBoundingClientRect().top,
+		popover.getBoundingClientRect().height
+	);
+	const parent = scrollParent(form);
+	if (parent) parent.scrollBy({ top: delta, behavior: 'auto' });
+	else window.scrollBy({ top: delta, behavior: 'auto' });
+	driverObj?.refresh();
+}
+
 function focusEntryField() {
 	const form = findVisible('entry');
 	const input = form?.querySelector<HTMLInputElement>('input[name="text"]');
@@ -267,7 +294,10 @@ function draw(step: TourStep, el: Element | null, fallback: boolean) {
 	});
 	// Typing steps: the visitor should be able to type straight away. Skip tour
 	// stays reachable with Tab.
-	if (!fallback && focusesEntryField(step)) focusEntryField();
+	if (!fallback && focusesEntryField(step)) {
+		focusEntryField();
+		if (el) clearEntryField(el);
+	}
 }
 
 function addSkip(popover: { wrapper: HTMLElement; footer: HTMLElement }) {

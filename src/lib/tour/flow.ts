@@ -79,3 +79,25 @@ export function focusesEntryField(step: TourStep): boolean {
 export function popoverSide(step: TourStep): { side: 'top'; align: 'start' } | Record<string, never> {
 	return focusesEntryField(step) ? { side: 'top', align: 'start' } : {};
 }
+
+export const POPOVER_GAP = 24;
+
+/**
+ * How far to scroll (positive = down) so a form whose top is at `formTop`
+ * sits just below a popover of `popoverHeight` placed above it.
+ */
+export function entryScrollTarget(
+	formTop: number,
+	popoverHeight: number,
+	gap: number = POPOVER_GAP
+): number {
+	return Math.round(formTop - (popoverHeight + gap));
+}
+
+/** True when two rects (viewport coordinates) overlap vertically. */
+export function overlapsVertically(
+	a: { top: number; bottom: number },
+	b: { top: number; bottom: number }
+): boolean {
+	return a.top < b.bottom && b.top < a.bottom;
+}

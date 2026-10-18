@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TOUR_STEPS } from './steps';
-import { advance, focusesEntryField, parseStoredStep, popoverSide, restoreAction, stepShowsOn } from './flow';
+import { advance, entryScrollTarget, focusesEntryField, overlapsVertically, parseStoredStep, popoverSide, restoreAction, stepShowsOn } from './flow';
 
 const LOG = 1;
 const ASK = 2;
@@ -119,5 +119,30 @@ describe('popoverSide', () => {
 		expect(popoverSide(TOUR_STEPS[2])).toEqual({ side: 'top', align: 'start' });
 		expect(popoverSide(TOUR_STEPS[0])).toEqual({});
 		expect(popoverSide(TOUR_STEPS[3])).toEqual({});
+	});
+});
+
+describe('entryScrollTarget', () => {
+	it('scrolls down by the room the popover needs above the form', () => {
+		// Phone: form top 340, popover 144 high, 24 gap -> 340 - 168 = 172.
+		expect(entryScrollTarget(340, 144)).toBe(172);
+	});
+
+	it('scrolls up (negative) when the form is already too close to the top', () => {
+		expect(entryScrollTarget(100, 144)).toBe(-68);
+	});
+
+	it('is zero when the form already sits exactly below the popover', () => {
+		expect(entryScrollTarget(168, 144)).toBe(0);
+	});
+});
+
+describe('overlapsVertically', () => {
+	it('detects the popover covering the input', () => {
+		expect(overlapsVertically({ top: 280, bottom: 424 }, { top: 373, bottom: 420 })).toBe(true);
+	});
+
+	it('is false when the popover ends above the input', () => {
+		expect(overlapsVertically({ top: 100, bottom: 330 }, { top: 373, bottom: 420 })).toBe(false);
 	});
 });
