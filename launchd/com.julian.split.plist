@@ -30,6 +30,7 @@
     <key>TZ</key><string>Asia/Manila</string>
     <key>DATABASE_URL</key><string>__PROJECT__/data/split.db</string>
     <key>NODE_ENV</key><string>production</string>
+    <key>LAYA_URL</key><string>http://127.0.0.1:3010</string>
   </dict>
 
   <key>KeepAlive</key><true/>
