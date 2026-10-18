@@ -38,51 +38,51 @@
 	const RULES = [
 		{
 			rule: 'The daily screen never shows a balance',
-			why: 'Seeing a large balance reliably makes people spend more. The code that builds that screen has no field for one, so adding it breaks the build rather than slipping through review.'
+			why: 'When people see a big balance, they usually spend more. The code for that screen has no place for a balance, so adding one breaks the build instead of quietly passing review.'
 		},
 		{
-			rule: 'Your daily number is a range, not a number',
-			why: '“₱103 left” reads as permission to spend ₱103, then a little past it. A range has no edge to spend up to.'
+			rule: 'Your daily number is a range, not one amount',
+			why: 'If the app says “₱103 left,” most people read it as permission to spend ₱103, and then a bit more. A range has no exact limit to spend up to.'
 		},
 		{
 			rule: 'You type every purchase yourself',
-			why: 'No bank sync, no card sync, ever. The typing is the mechanism, not the inconvenience — automatic tracking removes the one moment where you notice.'
+			why: 'There is no bank sync and no card sync, and there never will be. Typing each purchase is the point, not a hassle. Automatic tracking takes away the one moment where you actually notice what you spent.'
 		},
 		{
-			rule: 'Eight categories, and no budget on any of them',
-			why: 'Subdividing a spending budget is the one intervention that measurably made people spend more. Categories exist for the weekly review and nothing else.'
+			rule: 'Eight categories, but no budget for any of them',
+			why: 'Dividing a spending budget into category budgets is the one method that was shown to make people spend more. Categories are only used for the weekly review.'
 		},
 		{
-			rule: 'Underspending does not raise tomorrow’s number',
-			why: 'It is set once when the week opens and frozen. Recalculating “what is left ÷ days remaining” produces an end-of-week spree; the app deliberately cannot do that arithmetic.'
+			rule: 'Spending less today does not raise tomorrow’s number',
+			why: 'Your daily number is set once when the week starts, and it stays the same. Recomputing “what is left ÷ days remaining” leads to overspending at the end of the week, so the app is built so it cannot do that computation.'
 		},
 		{
-			rule: 'A 15% cushion is taken off the top and hidden',
-			why: 'People cannot hold a mental buffer, so the app holds it structurally. It accumulates quietly and sweeps into savings when the week closes.'
+			rule: 'A 15% cushion is set aside and hidden',
+			why: 'Most people cannot keep a buffer in their head, so the app keeps it for you. The cushion builds up quietly and goes to your savings when the week ends.'
 		},
 		{
 			rule: 'Bills never touch your spending money',
-			why: 'Rent, subscriptions and the annual ones are reserved before the daily figure is calculated. A cost you cannot decline has no business competing with a coffee.'
+			why: 'Rent, subscriptions and yearly payments are set aside before your daily number is computed. A payment you cannot skip should not compete with your coffee money.'
 		}
 	];
 </script>
 
 <svelte:head>
-	<title>Split — a budgeting app that hides your balance</title>
+	<title>Split: a budgeting app that hides your balance</title>
 	<meta
 		name="description"
-		content="Split is deliberately worse at what budgeting apps compete on, because the evidence says those features cause overspending."
+		content="Split leaves out the features most budgeting apps compete on, because those features make people spend more."
 	/>
 </svelte:head>
 
 <main>
 	<header>
 		<p class="eyebrow">Split</p>
-		<h1>A budgeting app that refuses to show you your balance.</h1>
+		<h1>A budgeting app that will not show you your balance.</h1>
 		<p class="lede">
-			It is deliberately worse at everything budgeting apps compete on — live balances, rich
-			categories, automatic import — because each of those measurably makes people spend more.
-			Seven constraints, none of them oversights.
+			Split is made to be worse at the things other budgeting apps compete on: live balances,
+			detailed categories, and automatic import. Each of these has been shown to make people spend
+			more. So the app follows seven rules, and every one of them is on purpose.
 		</p>
 
 		<div class="actions">
@@ -104,8 +104,8 @@
 			<p class="note" role="status">You have started several demos in the last hour. Try again later.</p>
 		{/if}
 		<p class="note">
-			The demo is the real app with ninety days of history in it. No email, nothing to install, and
-			it deletes itself after a day.
+			The demo is the real app, with 90 days of sample history already in it. You do not need an
+			email or anything to install, and your demo is deleted after one day.
 		</p>
 	</header>
 
@@ -126,9 +126,9 @@
 
 	<footer>
 		<p>
-			Single SQLite file, no queue, no worker, no external API. Every constraint above is enforced
-			by a test, and the one that matters most — that no query can return another person’s data —
-			is enforced by making the unscoped database handle impossible to import.
+			Split runs on a single SQLite file, with no queue, no worker and no outside API. Each rule above
+			is checked by a test. The most important one, that no query can return another person’s data,
+			is protected by making the unscoped database handle impossible to import.
 		</p>
 	</footer>
 </main>
@@ -193,19 +193,18 @@
 	}
 
 	/*
-	 * --accent-solid, not --accent. White on --accent is 3.64:1 in dark mode
-	 * and 4.41:1 in light: both fail the 4.5:1 floor for text this size. The
-	 * darker step clears it in both themes, and this is the one button a
-	 * reviewer is most likely to look at.
+	 * Ink on ground: white with near-black text in dark mode, inverted in
+	 * light. Keeps the page to the app's black-and-white palette, and the
+	 * contrast is far above the 4.5:1 floor in both themes.
 	 */
 	.primary {
-		background: var(--accent-solid, #1f5fb0);
-		border: 1px solid transparent;
-		color: #fff;
+		background: var(--ink);
+		border: 1px solid var(--ink);
+		color: var(--ground);
 	}
 
 	.primary:hover {
-		filter: brightness(1.1);
+		opacity: 0.88;
 	}
 
 	.secondary {
