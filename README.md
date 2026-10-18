@@ -1,14 +1,14 @@
-# Longhand
+# Split
 
 **A budgeting app that refuses to show you your balance.**
 
 Every other budgeting app competes on live balances, automatic bank import and
-rich category breakdowns. Longhand ships none of them, on purpose, because the
+rich category breakdowns. Split ships none of them, on purpose, because the
 field evidence says each one measurably makes people spend _more_. What it shows
 instead is a single band — _spend roughly ₱450–570 today_ — and a box to type
 what you just bought.
 
-[Try the demo](/demo) — the real app with ninety days of history in it, no email,
+[Try the demo](https://split.jlndev.xyz) — the real app with ninety days of history in it, no email,
 deletes itself after a day.
 
 ```
@@ -23,10 +23,17 @@ deletes itself after a day.
 That is the entire daily screen. No balance, no total, no progress bar, no
 "₱412 remaining". The absence is the product.
 
-The name is the argument. _Longhand_ means writing something out in full, by
-hand. It is the opposite of shorthand, and the opposite of doing it
-automatically. Every other app in this category competes on removing that step.
-The research says that step is the part that works.
+Typing in each purchase yourself is the mechanism, not a missing feature. Every
+other app in this category competes on removing that step with bank import and
+automatic categorisation. The research says that step is the part that works,
+so Split keeps it.
+
+## Live demo
+
+Try it at **https://split.jlndev.xyz**. No sign-up. Every visitor gets a private
+demo tenant with 90 days of sample history, and it is deleted after 24 hours.
+
+The demo runs on the author's Mac, so it is down whenever the Mac sleeps.
 
 ---
 
@@ -49,7 +56,7 @@ you are, you leave yourself a margin without thinking about it. When the screen
 says "₱412 left", that margin is gone. The number stops being information and
 becomes a target you are allowed to reach, and then a little past it.
 
-So Longhand does the opposite. It keeps the exact number from you. One band, one
+So Split does the opposite. It keeps the exact number from you. One band, one
 account, one minute of logging at night. The money is moved out of reach before
 you decide anything, instead of being measured after you already spent it.
 
@@ -591,7 +598,7 @@ returns nothing but `{"ok":true}`.
 
 ### The bind address, and what replaced it
 
-**This changed.** Longhand used to have no login, so the bind address _was_ the
+**This changed.** Split used to have no login, so the bind address _was_ the
 security control — invariant 10, and `scripts/serve.js` enforced it by refusing
 to start on a public interface.
 
