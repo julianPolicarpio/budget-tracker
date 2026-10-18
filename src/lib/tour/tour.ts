@@ -26,6 +26,7 @@ let index = 0;
 let driverObj: DriverInstance | null = null;
 let driverFactory: ((config: object) => DriverInstance) | null = null;
 let showToken = 0;
+let startToken = 0;
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
 let fallbackShown = false;
 let currentPath = '/';
@@ -72,12 +73,18 @@ export async function startTour(options: { restart?: boolean } = {}): Promise<vo
 	if (options.restart) {
 		setDone(false);
 		writeStep(0);
-		index = 0;
 		stopTour();
+	}
+	// The newest call wins: every await below re-checks this token, so a stale
+	// auto-start can never draw over (or advance past) a Replay.
+	const token = ++startToken;
+	const stale = () => token !== startToken;
+
+	if (options.restart) {
 		const { goto } = await import('$app/navigation');
+		if (stale()) return;
 		if (window.location.pathname !== '/') await goto('/');
-	} else {
-		index = readStep();
+		if (stale()) return;
 	}
 	if (active) return;
 
@@ -85,8 +92,10 @@ export async function startTour(options: { restart?: boolean } = {}): Promise<vo
 		const [mod] = await Promise.all([import('driver.js'), import('driver.js/dist/driver.css')]);
 		driverFactory = mod.driver as unknown as (config: object) => DriverInstance;
 	}
-	if (active) return;
+	if (stale() || active) return;
 
+	// Read the step only now, after every await: storage may have changed.
+	index = options.restart ? 0 : readStep();
 	active = true;
 	currentPath = window.location.pathname;
 	window.addEventListener('split:tour', onTourEvent);
@@ -117,6 +126,7 @@ export function notifyNavigated(pathname: string): void {
 
 /** Closes the popover. Leaves the stored step and the done flag alone. */
 export function stopTour(): void {
+	startToken++;
 	showToken++;
 	clearTimeout(pollTimer);
 	closePopover();
