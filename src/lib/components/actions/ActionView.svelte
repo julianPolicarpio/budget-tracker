@@ -82,7 +82,7 @@
 </script>
 
 {#if view}
-	<div class="action-view" data-tour="intent-result">
+	<div class="action-view" data-tour={page.data.demo === true ? 'intent-result' : undefined}>
 		<div class="head">
 			<button type="button" class="back" bind:this={backEl} onclick={onBack}>← Back</button>
 			<h2 class="label">{view.action.label}</h2>

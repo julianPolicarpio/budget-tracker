@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TOUR_STEPS } from './steps';
-import { advance, parseStoredStep, shouldAutoStart, stepShowsOn } from './flow';
+import { advance, parseStoredStep, restoreAction, stepShowsOn } from './flow';
 
 const LOG = 1;
 const ASK = 2;
@@ -77,20 +77,32 @@ describe('parseStoredStep', () => {
 	});
 });
 
-describe('shouldAutoStart', () => {
-	it('starts in demo on Today when not finished', () => {
-		expect(shouldAutoStart({ demo: true, done: false, pathname: '/' })).toBe(true);
+describe('restoreAction', () => {
+	const base = { steps: TOUR_STEPS, demo: true, done: false };
+
+	it('starts on Today from the first step', () => {
+		expect(restoreAction({ ...base, pathname: '/', storedStep: 0 })).toBe('start');
 	});
 
-	it('never starts outside demo', () => {
-		expect(shouldAutoStart({ demo: false, done: false, pathname: '/' })).toBe(false);
+	it('resumes the last step after a reload on /review', () => {
+		expect(restoreAction({ ...base, pathname: '/review', storedStep: LAST })).toBe('start');
 	});
 
-	it('does not restart a finished or skipped tour', () => {
-		expect(shouldAutoStart({ demo: true, done: true, pathname: '/' })).toBe(false);
+	it('resumes a mid-tour step on Today', () => {
+		expect(restoreAction({ ...base, pathname: '/', storedStep: LAYA })).toBe('start');
 	});
 
-	it('does not start on a page that is not Today', () => {
-		expect(shouldAutoStart({ demo: true, done: false, pathname: '/review' })).toBe(false);
+	it('finishes when the last step is stored and the visitor is elsewhere', () => {
+		expect(restoreAction({ ...base, pathname: '/', storedStep: LAST })).toBe('finish');
+	});
+
+	it('leaves a mid-tour step alone on another page', () => {
+		expect(restoreAction({ ...base, pathname: '/review', storedStep: LOG })).toBe('none');
+	});
+
+	it('never acts outside demo or once finished', () => {
+		expect(restoreAction({ ...base, demo: false, pathname: '/', storedStep: 0 })).toBe('none');
+		expect(restoreAction({ ...base, done: true, pathname: '/', storedStep: 0 })).toBe('none');
+		expect(restoreAction({ ...base, demo: false, pathname: '/', storedStep: LAST })).toBe('none');
 	});
 });

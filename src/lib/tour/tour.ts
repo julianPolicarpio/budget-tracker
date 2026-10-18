@@ -10,7 +10,7 @@
  *   - `split:tour-show` { detail: { target } }   the tour tells a page which
  *     anchor it is about to point at (desktop uses this to open the entry bar)
  */
-import { advance, parseStoredStep, shouldAutoStart, stepShowsOn, type TourSignal } from './flow';
+import { advance, parseStoredStep, restoreAction, stepShowsOn, type TourSignal } from './flow';
 import { TOUR_STEPS, type TourStep } from './steps';
 
 const STEP_KEY = 'split_tour_step';
@@ -93,11 +93,19 @@ export async function startTour(options: { restart?: boolean } = {}): Promise<vo
 	showCurrent();
 }
 
-/** Auto-start for the layout: only when demo, on Today, and not finished. */
+/** Called by the layout on mount: resumes the stored step, or ends a tour
+ * whose last step was left behind. */
 export function maybeAutoStart(demo: boolean): void {
 	if (typeof window === 'undefined') return;
-	if (!shouldAutoStart({ demo, done: isDone(), pathname: window.location.pathname })) return;
-	void startTour();
+	const action = restoreAction({
+		steps: TOUR_STEPS,
+		demo,
+		done: isDone(),
+		pathname: window.location.pathname,
+		storedStep: readStep()
+	});
+	if (action === 'start') void startTour();
+	else if (action === 'finish') finish();
 }
 
 /** The layout calls this after every navigation (`afterNavigate` has to be

@@ -48,10 +48,24 @@ export function parseStoredStep(raw: string | null, length: number): number {
 	return n < length ? n : 0;
 }
 
-export function shouldAutoStart(input: {
+export type Restore = 'start' | 'finish' | 'none';
+
+/**
+ * What to do when a page loads in the demo. Resume when the stored step
+ * belongs on this page (so a reload on /review picks the last step back up).
+ * If the visitor reached the last step and has since left its page, the tour
+ * is over. Otherwise leave it alone.
+ */
+export function restoreAction(input: {
+	steps: readonly TourStep[];
 	demo: boolean;
 	done: boolean;
 	pathname: string;
-}): boolean {
-	return input.demo && !input.done && normalise(input.pathname) === '/';
+	storedStep: number;
+}): Restore {
+	if (!input.demo || input.done) return 'none';
+	const step = input.steps[input.storedStep];
+	if (!step) return 'none';
+	if (stepShowsOn(step, input.pathname)) return 'start';
+	return input.storedStep === input.steps.length - 1 ? 'finish' : 'none';
 }

@@ -9,6 +9,7 @@
 	 * Sans is what you typed (the `<input>` this sits beneath, `--font-ui`);
 	 * mono is what the machine understood — this whole component included.
 	 */
+	import { page } from '$app/state';
 	import { CATEGORIES, CATEGORY_HELP, categoryLabel, type CategoryKey } from '$lib/categories';
 	import { formatMoney } from '$lib/money';
 	import {
@@ -206,7 +207,7 @@
 {/if}
 
 {#if intentChoices && intentChoices.source === entry.text.trim() && onChooseAction}
-	<div class="intent-options" data-tour="intent-result" role="group" aria-label="Choose an action">
+	<div class="intent-options" data-tour={page.data.demo === true ? 'intent-result' : undefined} role="group" aria-label="Choose an action">
 		<p>Choose the form you meant:</p>
 		{#each intentChoices.ids as id (id)}
 			{@const action = actionById(id)}

@@ -195,6 +195,13 @@
 	function onKeydown(event: KeyboardEvent) {
 		if (!open) return;
 
+		// The demo's tour popover lives outside this dialog. Keys typed there
+		// belong to it, and Escape must not close the overlay under a tour step
+		// that is pointing at it. No popover exists outside the demo tour.
+		const target = event.target as Element | null;
+		if (target?.closest?.('.driver-popover')) return;
+		if (event.key === 'Escape' && document.querySelector('.driver-popover')) return;
+
 		if (event.key === 'Escape') {
 			event.preventDefault();
 			onClose();
@@ -360,7 +367,7 @@
 		{:else}
 			<form
 				bind:this={formEl}
-				data-tour="entry"
+				data-tour={page.data.demo === true ? 'entry' : undefined}
 				method="POST"
 				action="?/logEntry"
 				use:enhance={offlineLogSubmit(entry, () => resolved, userId, onEntrySaved, onQueueChanged)}
